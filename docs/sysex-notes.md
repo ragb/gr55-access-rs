@@ -47,14 +47,29 @@ F0 41 10 00 00 53 12  18 00 00 00  "Init Patch      " ... [chk] F7
 
 ## 3. Universal Identity Reply
 
-Status: **UNKNOWN**. FloorBoard does not use the identity-request handshake.
-The Roland MIDI Implementation Chart has not been inspected for the family code
-and software-revision bytes.
+Status: **MEDIUM** — pattern extracted from FloorBoard `globalVariables.h:41`.
 
-To resolve: either (a) inspect the owner's manual PDF appendix, or (b) capture a
-reply from the real device via friend-mediated GUI session.
+```
+F0 7E 10 06 02 41 53 02 00 00 00 00 00 00 F7
+   │  │  │  │  │  │  │  │  │  │  │           │
+   │  │  │  │  │  │  │  │  │  │  └─sw-rev────┤
+   │  │  │  │  │  │  │  │  └─number───────────┤
+   │  │  │  │  │  │  └──family code (53 02)──┤
+   │  │  │  │  │  └──Roland manufacturer──────┤
+   │  │  │  └──sub-id1=06, sub-id2=02 (reply)─┤
+   │  │  └──device ID (FloorBoard uses 10)────┤
+   │  └──Universal Non-Realtime (7E)──────────┤
+   └──SOX─────────────────────────────────────┘
+```
 
-Expected reply shape: `F0 7E 7F 06 02 41 [family-lo family-hi] [number-lo number-hi] [4-byte sw-rev] F7`.
+- **Family code = `53 02`** (LSB, MSB; 16-bit value `0x0253`). Note: same low
+  byte (`53`) as the GR-55's 3-byte model ID.
+- **Device family number = `00 00`**.
+- **Software revision = `00 00 00 00`** in FloorBoard's identity-pattern string
+  (FloorBoard substring-matches the reply, so the literal `00 00 00 00` is just
+  the pattern; the device probably sends real sw-rev bytes here that FloorBoard
+  ignores). Confirm against a real device when possible.
+- The request to elicit this reply: `F0 7E 10 06 01 F7` (per `globalVariables.h:40`).
 
 ## 4. Top-level address space
 
@@ -63,9 +78,12 @@ Read out of FloorBoard `midi.xml`'s `<Address>` section and the top-level
 
 | MSB     | Meaning                                      | Provenance | Notes |
 |---------|----------------------------------------------|------------|-------|
-| `01 00 00 00` | System area base                        | HIGH       | `system.syx` opens with DT1 to this address |
-| `18 00 00 00` | Saved-patch file-format address (?)     | LOW        | `default.syx` writes its patch payload here; appears to be a canonical "file" address that gets remapped to live USER / TEMP / PRESET on load. Open question. |
-| `60 00 00 00` | Temporary Buffer / Edit Buffer base     | MEDIUM     | FloorBoard XML labels it "Temporary Buffer (Bulk)" and "Temporary Buffer (Individual)" — two access modes at the same MSB. Distinct from RE-202's `20 00 00 00` edit-buffer address. |
+| `01 *` | System area, page 1 (start of System parameters) | HIGH | `system.syx` opens with DT1 to this MSB |
+| `02 *` | System area, additional pages | HIGH | Discovered via build.rs codegen of midi.xml: `<System>` contains two top-level `<LSB>` children (`value="01"` and `value="02"`). System frames in `system.syx` at addresses like `[02, 00, 02, 00]` correspond to MSB-02 system parameters, not patches. |
+| `18 00 00 00` | Live current-patch write area | HIGH | FloorBoard's `globalVariables.h:77` calls this `tempDataWrite`; the device keeps the currently-edited patch here before save. `default.syx` writes its patch payload to this MSB because it represents the patch as edit-buffer state. |
+| `20 00 00 00`..`22 28 00 00` | USER patch slots (`PatchSlot::User { bank: 1..=99, position: 1..=3 }`) | HIGH | Reverse-engineered from FloorBoard `MidiTable::patchRequest`: `address = [0x20 + n, p, 0, 0]` where `n*128 + p = (bank-1)*3 + (position-1)`. Implemented in `gr55-core::address`. |
+| `23 00 00 00`+ | PRESET patch slots | HIGH | Same formula with a `+87` index gap between USER and PRESET ranges. |
+| `60 00 00 00` | Temporary Buffer / Edit Buffer base (read) | MEDIUM | FloorBoard XML labels it "Temporary Buffer (Bulk)" and "Temporary Buffer (Individual)" — two access modes at the same MSB. Distinct from RE-202's `20 00 00 00` edit-buffer address (which on GR-55 is occupied by user patch 1:1). |
 
 XML top-level sections (mirrored in `midi.xsd`), with observed line ranges in `midi.utf8.xml`:
 
@@ -96,7 +114,32 @@ To be filled in once `<System>` is mined into Rust types.
 
 ## 7. Per-patch parameters
 
-To be filled in once `<Structure>` is mined into Rust types.
+Observed patch byte layout (from `default.syx` first DT1 frame at address `18 00 00 00`,
+cross-referenced with FloorBoard `midi.xml`'s `<Structure>` section):
+
+| Sub-address | Byte | Meaning | Source |
+|---|---|---|---|
+| `00` | `00` (Guitar) / `01` (Bass) | Guitar/Bass Mode | `<Structure><LSB value="00"><LSB value="00"><DATA value="00" abbr="Guitar/Bass Mode">` |
+| `01`..`10` | 16 bytes of printable ASCII | Patch name (16 characters; `0x20`..`0x7E` allowed) | `<DATA value="01" abbr="Name1">` … `Name16` |
+| `11`+ | … | Pedal section, then PCM tones, then COSM, then effects | rest of `<Structure>` |
+
+Implication for the typed `Patch` model: the first struct field is
+`mode: Mode { Guitar, Bass }`, followed by `name: PatchName` (a `[u8; 16]`
+newtype with printable-ASCII validation), then nested subsystem structs.
+
+The full byte size of one patch is still unknown — to measure: sum payload
+bytes across all DT1 frames in `default.syx` between the first `18 00 00 00`
+frame and the next non-`18`-prefixed frame.
+
+FloorBoard's `globalVariables.h:58-59`:
+
+```c
+const int patchReplySize = 1268;  // bytes in a patch before trimming
+const int patchSize      = 1333;  // bytes in a patch after trimming
+```
+
+So one patch is roughly **1.3 KB** of data — small enough that `dump --all`
+on 297 user patches is ~400 KB total, manageable in one batch.
 
 ## 8. CC map
 
@@ -116,18 +159,41 @@ documented protocol break). Assume the map is stable. Capture
 software-revision bytes into every fixture filename anyway when friend-mediated
 captures become available.
 
-## 11. Open questions (parking lot)
+## 11. FloorBoard fixture quirk: bad checksums in saved files
 
-- [ ] What does address MSB `18` represent — file-format canonical patch, or a live area? (Cross-check with the owner's manual.)
+**Refer to:** `SysxIO.cpp:131-145` (load-time validation), `SysxIO.cpp:144`
+(`sysxBuffer = correctSysxMsg(sysxBuffer)` — silent correction).
+
+FloorBoard's bundled `system.syx` and `default.syx` contain frames whose
+embedded checksum **does not match** the Roland formula applied to the
+frame's address + data. FloorBoard silently corrects them on load.
+
+Hand-verified example (`floorboard_system_area.syx`, frame 3): address
+`02 00 02 00`, 128 data bytes, declared checksum `0x37`, correct checksum
+`0x36`. Off by one in the same direction across multiple frames in that
+file.
+
+**Implication for `gr55-core::sysex`:** the strict [`Frame::try_parse`]
+rejects these as `BadChecksum` (correct behavior — real device wire data
+should always have valid checksums). For FloorBoard fixtures, use the
+lenient [`Frame::try_parse_unchecked`] / [`parse_frames_unchecked`], which
+returns a [`ChecksumStatus`] alongside each parsed frame. Round-trip tests
+verify that **re-encoding** a frame parsed leniently produces a valid
+checksum, proving our algorithm is correct.
+
+## 12. Open questions (parking lot)
+
+- [x] What does address MSB `18` represent? **Resolved (HIGH):** FloorBoard's `globalVariables.h:77` `tempDataWrite = "18"` — the live current-patch write area. `default.syx` writes its patch payload here because that's how the device receives a "load this patch into the edit buffer" command.
 - [x] What is the `<MPT>` section in `midi.xml`? **Resolved:** MIDI Patch Table — Bank/PC → patch routing matrix.
-- [ ] Universal Identity Reply bytes (family code, sw-rev).
+- [x] Universal Identity Reply bytes. **Resolved (MEDIUM):** family code `53 02`, request `F0 7E 10 06 01 F7`. Software-revision bytes still need real-device confirmation.
+- [x] USER and PRESET patch base addresses. **Resolved (HIGH):** `[0x20 + n, p, 0, 0]` where `n*128 + p = (bank-1)*3 + (position-1)`, with a +87 index gap before PRESET. Implemented in `gr55-core::address`.
 - [ ] Tempo / BPM encoding.
-- [ ] Confirm checksum formula matches a real fixture (compute over `default.syx` first frame, compare to the byte before `F7`).
+- [x] Confirm checksum formula matches a real fixture. **Resolved:** formula `(128 − sum%128) % 128` over address+data is correct; verified by hand-computation over the first frame of `system.syx` (sum 0x3A → checksum 0x46 = matches file) and by every `gr55-core` strict round-trip test passing.
 - [ ] PC# → patch mapping (does PC#0 select User 01:1 or User 01:1's whole bank-of-3?).
 - [ ] Broadcast device-id (`7F`) behavior.
-- [ ] Byte size of one full patch dump (sum payload bytes across `default.syx`'s DT1 messages).
+- [ ] Byte size of one full patch dump. **Partially answered:** FloorBoard reports `patchSize = 1333` bytes after trimming (`globalVariables.h:59`).
 - [ ] Edit-buffer mirror behavior: does reading `60 ...` reflect the currently-active patch, like RE-202?
 
-## 12. Refuted / dead ends
+## 13. Refuted / dead ends
 
 (none yet)
