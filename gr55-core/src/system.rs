@@ -706,11 +706,19 @@ impl PatchLevel {
 pub struct MasterBpm(u8);
 
 impl MasterBpm {
+    /// Raw wire byte, 0..=255.
     pub fn new(value: u8) -> Self {
         MasterBpm(value)
     }
-    pub fn get(self) -> u8 {
+    /// Raw wire byte.
+    pub fn raw(self) -> u8 {
         self.0
+    }
+    /// Integer FloorBoard's UI prints on the BPM knob — `1536 + raw`,
+    /// range 1536..=1791. Not BPM in beats-per-minute; the Roland-internal
+    /// interpretation isn't documented in FloorBoard itself.
+    pub fn display_value(self) -> u16 {
+        1536 + u16::from(self.0)
     }
     fn from_two_bytes(hi: u8, lo: u8) -> Option<Self> {
         decode_nibble_pair(hi, lo).map(MasterBpm)
@@ -1476,6 +1484,16 @@ mod tests {
             assert_eq!(back.patch_level, Some(level), "round-trip failed for {v}");
         }
         assert!(PatchLevel::new(201).is_none());
+    }
+
+    #[test]
+    fn master_bpm_display_matches_floorboard_table() {
+        // FloorBoard's <Tables> DATA value="06" PARAM range "00/FF/1536/1791":
+        // display = 1536 + raw_byte (linear interpolation per
+        // MidiTable.cpp:rangeToValue).
+        assert_eq!(MasterBpm::new(0).display_value(), 1536);
+        assert_eq!(MasterBpm::new(0x78).display_value(), 1656);
+        assert_eq!(MasterBpm::new(0xFF).display_value(), 1791);
     }
 
     #[test]
