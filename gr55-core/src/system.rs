@@ -165,6 +165,32 @@ pub const ADDR_USER_TUNING_SHIFT_STRINGS: [[u8; 4]; 6] = [
 /// 21 enum values; sub-fields at `[02, 02, 0x3C..0x78]`.
 pub const ADDR_EXP_PEDAL_SWITCH_FUNCTION: [u8; 4] = [0x02, 0x02, 0x3B, 0x00];
 
+// CTL Pedal sub-fields on page 2 (active when ctl_pedal_function selects them).
+/// CTL Pedal Hold Type (1/2/3/4) — active when CTL function is Hold.
+pub const ADDR_CTL_HOLD_TYPE: [u8; 4] = [0x02, 0x02, 0x01, 0x00];
+/// CTL Pedal Switch Mode (Latch/Moment) — active when CTL function is Hold.
+pub const ADDR_CTL_SWITCH_MODE: [u8; 4] = [0x02, 0x02, 0x02, 0x00];
+/// CTL Pedal Hold PCM 1.
+pub const ADDR_CTL_HOLD_PCM_1: [u8; 4] = [0x02, 0x02, 0x03, 0x00];
+/// CTL Pedal Hold PCM 2.
+pub const ADDR_CTL_HOLD_PCM_2: [u8; 4] = [0x02, 0x02, 0x04, 0x00];
+/// CTL Tone-Sw OFF-action PCM 1.
+pub const ADDR_CTL_TONE_SW_OFF_PCM_1: [u8; 4] = [0x02, 0x02, 0x05, 0x00];
+/// CTL Tone-Sw OFF-action PCM 2.
+pub const ADDR_CTL_TONE_SW_OFF_PCM_2: [u8; 4] = [0x02, 0x02, 0x06, 0x00];
+/// CTL Tone-Sw OFF-action Modeling.
+pub const ADDR_CTL_TONE_SW_OFF_MODELING: [u8; 4] = [0x02, 0x02, 0x07, 0x00];
+/// CTL Tone-Sw OFF-action Normal PU.
+pub const ADDR_CTL_TONE_SW_OFF_NORMAL_PU: [u8; 4] = [0x02, 0x02, 0x08, 0x00];
+/// CTL Tone-Sw ON-action PCM 1.
+pub const ADDR_CTL_TONE_SW_ON_PCM_1: [u8; 4] = [0x02, 0x02, 0x09, 0x00];
+/// CTL Tone-Sw ON-action PCM 2.
+pub const ADDR_CTL_TONE_SW_ON_PCM_2: [u8; 4] = [0x02, 0x02, 0x0A, 0x00];
+/// CTL Tone-Sw ON-action Modeling.
+pub const ADDR_CTL_TONE_SW_ON_MODELING: [u8; 4] = [0x02, 0x02, 0x0B, 0x00];
+/// CTL Tone-Sw ON-action Normal PU.
+pub const ADDR_CTL_TONE_SW_ON_NORMAL_PU: [u8; 4] = [0x02, 0x02, 0x0C, 0x00];
+
 /// CTL Pedal Function selector (page 2). 22 enum values; chosen function
 /// determines which sub-fields at `[02, 02, 0x01..0x0C]` are active.
 pub const ADDR_CTL_PEDAL_FUNCTION: [u8; 4] = [0x02, 0x02, 0x00, 0x00];
@@ -793,6 +819,62 @@ impl ExpPedalSwitchFunction {
     }
 }
 
+/// CTL Pedal Hold Type — 4 latch / momentary variants.
+/// Mined from midi.xml:3087-3092 `<PARAM value="01" customdesc="Hold Type">`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HoldType {
+    Type1,
+    Type2,
+    Type3,
+    Type4,
+}
+
+impl HoldType {
+    fn from_byte(b: u8) -> Option<Self> {
+        Some(match b {
+            0 => HoldType::Type1,
+            1 => HoldType::Type2,
+            2 => HoldType::Type3,
+            3 => HoldType::Type4,
+            _ => return None,
+        })
+    }
+    fn to_byte(self) -> u8 {
+        match self {
+            HoldType::Type1 => 0,
+            HoldType::Type2 => 1,
+            HoldType::Type3 => 2,
+            HoldType::Type4 => 3,
+        }
+    }
+}
+
+/// CTL Pedal Switch Mode (Latch / Moment).
+/// Mined from midi.xml:3093-3096 `<PARAM value="02" customdesc="Switch Mode">`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SwitchMode {
+    Latch,
+    Moment,
+}
+
+impl SwitchMode {
+    fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0 => Some(SwitchMode::Latch),
+            1 => Some(SwitchMode::Moment),
+            _ => None,
+        }
+    }
+    fn to_byte(self) -> u8 {
+        match self {
+            SwitchMode::Latch => 0,
+            SwitchMode::Moment => 1,
+        }
+    }
+}
+
 /// Master Patch Level (0..=200). Wire encoding is 4-nibble (NOT the 14-bit
 /// scheme used by the Player / USB audio levels): the high nibble of the
 /// value lands at `[02, 00, 0x30]` and the low nibble at `[02, 00, 0x31]`.
@@ -972,6 +1054,32 @@ pub struct SystemArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exp_pedal_switch_function: Option<ExpPedalSwitchFunction>,
 
+    // ---- CTL Pedal page 2 sub-parameters (active per CTL function) ----
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_hold_type: Option<HoldType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_switch_mode: Option<SwitchMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_hold_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_hold_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_off_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_off_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_off_modeling: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_off_normal_pu: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_on_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_on_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_on_modeling: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_on_normal_pu: Option<OnOff>,
+
     // ---- Master menu remainder (single-byte values; enums not in midi.xml) ----
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gk_set_select: Option<u8>,
@@ -1093,6 +1201,28 @@ impl SystemArea {
             take(&mut bytes, ADDR_EXP_PEDAL_ON_FUNCTION).and_then(ExpPedalFunction::from_byte);
         out.exp_pedal_switch_function = take(&mut bytes, ADDR_EXP_PEDAL_SWITCH_FUNCTION)
             .and_then(ExpPedalSwitchFunction::from_byte);
+
+        out.ctl_hold_type = take(&mut bytes, ADDR_CTL_HOLD_TYPE).and_then(HoldType::from_byte);
+        out.ctl_switch_mode =
+            take(&mut bytes, ADDR_CTL_SWITCH_MODE).and_then(SwitchMode::from_byte);
+        out.ctl_hold_pcm_1 = take(&mut bytes, ADDR_CTL_HOLD_PCM_1).and_then(OnOff::from_byte);
+        out.ctl_hold_pcm_2 = take(&mut bytes, ADDR_CTL_HOLD_PCM_2).and_then(OnOff::from_byte);
+        out.ctl_tone_sw_off_pcm_1 =
+            take(&mut bytes, ADDR_CTL_TONE_SW_OFF_PCM_1).and_then(OnOff::from_byte);
+        out.ctl_tone_sw_off_pcm_2 =
+            take(&mut bytes, ADDR_CTL_TONE_SW_OFF_PCM_2).and_then(OnOff::from_byte);
+        out.ctl_tone_sw_off_modeling =
+            take(&mut bytes, ADDR_CTL_TONE_SW_OFF_MODELING).and_then(OnOff::from_byte);
+        out.ctl_tone_sw_off_normal_pu =
+            take(&mut bytes, ADDR_CTL_TONE_SW_OFF_NORMAL_PU).and_then(OnOff::from_byte);
+        out.ctl_tone_sw_on_pcm_1 =
+            take(&mut bytes, ADDR_CTL_TONE_SW_ON_PCM_1).and_then(OnOff::from_byte);
+        out.ctl_tone_sw_on_pcm_2 =
+            take(&mut bytes, ADDR_CTL_TONE_SW_ON_PCM_2).and_then(OnOff::from_byte);
+        out.ctl_tone_sw_on_modeling =
+            take(&mut bytes, ADDR_CTL_TONE_SW_ON_MODELING).and_then(OnOff::from_byte);
+        out.ctl_tone_sw_on_normal_pu =
+            take(&mut bytes, ADDR_CTL_TONE_SW_ON_NORMAL_PU).and_then(OnOff::from_byte);
 
         out.gk_set_select = take(&mut bytes, ADDR_GK_SET_SELECT);
         out.guitar_out = take(&mut bytes, ADDR_GUITAR_OUT);
@@ -1260,6 +1390,31 @@ impl SystemArea {
         }
         if let Some(v) = self.exp_pedal_switch_function {
             bytes.insert(ADDR_EXP_PEDAL_SWITCH_FUNCTION, v.to_byte());
+        }
+        if let Some(v) = self.ctl_hold_type {
+            bytes.insert(ADDR_CTL_HOLD_TYPE, v.to_byte());
+        }
+        if let Some(v) = self.ctl_switch_mode {
+            bytes.insert(ADDR_CTL_SWITCH_MODE, v.to_byte());
+        }
+        for (addr, value) in [
+            (ADDR_CTL_HOLD_PCM_1, self.ctl_hold_pcm_1),
+            (ADDR_CTL_HOLD_PCM_2, self.ctl_hold_pcm_2),
+            (ADDR_CTL_TONE_SW_OFF_PCM_1, self.ctl_tone_sw_off_pcm_1),
+            (ADDR_CTL_TONE_SW_OFF_PCM_2, self.ctl_tone_sw_off_pcm_2),
+            (ADDR_CTL_TONE_SW_OFF_MODELING, self.ctl_tone_sw_off_modeling),
+            (
+                ADDR_CTL_TONE_SW_OFF_NORMAL_PU,
+                self.ctl_tone_sw_off_normal_pu,
+            ),
+            (ADDR_CTL_TONE_SW_ON_PCM_1, self.ctl_tone_sw_on_pcm_1),
+            (ADDR_CTL_TONE_SW_ON_PCM_2, self.ctl_tone_sw_on_pcm_2),
+            (ADDR_CTL_TONE_SW_ON_MODELING, self.ctl_tone_sw_on_modeling),
+            (ADDR_CTL_TONE_SW_ON_NORMAL_PU, self.ctl_tone_sw_on_normal_pu),
+        ] {
+            if let Some(v) = value {
+                bytes.insert(addr, v.to_byte());
+            }
         }
         if let Some(v) = self.gk_set_select {
             bytes.insert(ADDR_GK_SET_SELECT, v);
@@ -1463,6 +1618,18 @@ mod tests {
             alt_tuning_sw: Some(OnOff::On),
             alt_tuning_type: Some(4),
             user_tuning_shift_strings: [Some(64), Some(65), Some(66), Some(67), Some(68), Some(69)],
+            ctl_hold_type: Some(HoldType::Type2),
+            ctl_switch_mode: Some(SwitchMode::Moment),
+            ctl_hold_pcm_1: Some(OnOff::On),
+            ctl_hold_pcm_2: Some(OnOff::Off),
+            ctl_tone_sw_off_pcm_1: Some(OnOff::On),
+            ctl_tone_sw_off_pcm_2: Some(OnOff::Off),
+            ctl_tone_sw_off_modeling: Some(OnOff::On),
+            ctl_tone_sw_off_normal_pu: Some(OnOff::Off),
+            ctl_tone_sw_on_pcm_1: Some(OnOff::Off),
+            ctl_tone_sw_on_pcm_2: Some(OnOff::On),
+            ctl_tone_sw_on_modeling: Some(OnOff::Off),
+            ctl_tone_sw_on_normal_pu: Some(OnOff::On),
             unknown_bytes: BTreeMap::new(),
         };
         let frames = area.to_frames(0x10).unwrap();
