@@ -589,6 +589,56 @@ pub struct PatchArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exp_sw_tone_sw_on_normal_pu: Option<OnOff>,
 
+    // ---- GK VOLUME block (page 0x00 offsets 0x5B..=0x71) ----
+    // Same shape as the EXP / EXP ON blocks; GK VOLUME's function enum is
+    // identical to ExpFunction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_function: Option<ExpFunction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_tone_vol_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_tone_vol_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_tone_vol_modeling: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_tone_vol_normal_pu: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_pitch_bend_depth: Option<PitchBendDepth>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_pitch_bend_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_pitch_bend_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_pitch_bend_modeling: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_mod_min: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_mod_max: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_mod_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_mod_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_cross_fader_pcm_1: Option<CrossFaderMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_cross_fader_pcm_2: Option<CrossFaderMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_cross_fader_modeling: Option<CrossFaderMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_cross_fader_normal_pu: Option<CrossFaderMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_delay_min: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_delay_max: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_reverb_min: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_reverb_max: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_chorus_min: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_chorus_max: Option<u8>,
+
     /// Everything inside the patch payload that the typed model doesn't yet
     /// cover. Keys are formatted `"PP:HH:LL"` — page byte, then the two
     /// in-page offset bytes.
@@ -723,6 +773,29 @@ impl PatchArea {
             (0x00, 0x00, 0x58) => self.exp_sw_tone_sw_on_pcm_2 = OnOff::from_byte(b),
             (0x00, 0x00, 0x59) => self.exp_sw_tone_sw_on_modeling = OnOff::from_byte(b),
             (0x00, 0x00, 0x5A) => self.exp_sw_tone_sw_on_normal_pu = OnOff::from_byte(b),
+            (0x00, 0x00, 0x5B) => self.gk_vol_function = ExpFunction::from_byte(b),
+            (0x00, 0x00, 0x5C) => self.gk_vol_tone_vol_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x5D) => self.gk_vol_tone_vol_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x5E) => self.gk_vol_tone_vol_modeling = OnOff::from_byte(b),
+            (0x00, 0x00, 0x5F) => self.gk_vol_tone_vol_normal_pu = OnOff::from_byte(b),
+            (0x00, 0x00, 0x60) => self.gk_vol_pitch_bend_depth = PitchBendDepth::from_byte(b),
+            (0x00, 0x00, 0x61) => self.gk_vol_pitch_bend_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x62) => self.gk_vol_pitch_bend_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x63) => self.gk_vol_pitch_bend_modeling = OnOff::from_byte(b),
+            (0x00, 0x00, 0x64) if b <= 127 => self.gk_vol_mod_min = Some(b),
+            (0x00, 0x00, 0x65) if b <= 127 => self.gk_vol_mod_max = Some(b),
+            (0x00, 0x00, 0x66) => self.gk_vol_mod_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x67) => self.gk_vol_mod_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x68) => self.gk_vol_cross_fader_pcm_1 = CrossFaderMode::from_byte(b),
+            (0x00, 0x00, 0x69) => self.gk_vol_cross_fader_pcm_2 = CrossFaderMode::from_byte(b),
+            (0x00, 0x00, 0x6A) => self.gk_vol_cross_fader_modeling = CrossFaderMode::from_byte(b),
+            (0x00, 0x00, 0x6B) => self.gk_vol_cross_fader_normal_pu = CrossFaderMode::from_byte(b),
+            (0x00, 0x00, 0x6C) if b <= 120 => self.gk_vol_delay_min = Some(b),
+            (0x00, 0x00, 0x6D) if b <= 120 => self.gk_vol_delay_max = Some(b),
+            (0x00, 0x00, 0x6E) if b <= 100 => self.gk_vol_reverb_min = Some(b),
+            (0x00, 0x00, 0x6F) if b <= 100 => self.gk_vol_reverb_max = Some(b),
+            (0x00, 0x00, 0x70) if b <= 100 => self.gk_vol_chorus_min = Some(b),
+            (0x00, 0x00, 0x71) if b <= 100 => self.gk_vol_chorus_max = Some(b),
             _ => {
                 self.unknown_bytes.insert(format_key(page, hi, lo), b);
             }
@@ -952,6 +1025,76 @@ impl PatchArea {
         }
         if let Some(v) = self.exp_sw_tone_sw_on_normal_pu {
             bytes.insert([base_msb, 0x00, 0x00, 0x5A], v.to_byte());
+        }
+        // GK VOLUME block
+        if let Some(v) = self.gk_vol_function {
+            bytes.insert([base_msb, 0x00, 0x00, 0x5B], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_tone_vol_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x5C], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_tone_vol_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x5D], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_tone_vol_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x5E], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_tone_vol_normal_pu {
+            bytes.insert([base_msb, 0x00, 0x00, 0x5F], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_pitch_bend_depth {
+            bytes.insert([base_msb, 0x00, 0x00, 0x60], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_pitch_bend_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x61], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_pitch_bend_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x62], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_pitch_bend_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x63], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_mod_min {
+            bytes.insert([base_msb, 0x00, 0x00, 0x64], v);
+        }
+        if let Some(v) = self.gk_vol_mod_max {
+            bytes.insert([base_msb, 0x00, 0x00, 0x65], v);
+        }
+        if let Some(v) = self.gk_vol_mod_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x66], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_mod_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x67], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_cross_fader_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x68], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_cross_fader_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x69], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_cross_fader_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x6A], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_cross_fader_normal_pu {
+            bytes.insert([base_msb, 0x00, 0x00, 0x6B], v.to_byte());
+        }
+        if let Some(v) = self.gk_vol_delay_min {
+            bytes.insert([base_msb, 0x00, 0x00, 0x6C], v);
+        }
+        if let Some(v) = self.gk_vol_delay_max {
+            bytes.insert([base_msb, 0x00, 0x00, 0x6D], v);
+        }
+        if let Some(v) = self.gk_vol_reverb_min {
+            bytes.insert([base_msb, 0x00, 0x00, 0x6E], v);
+        }
+        if let Some(v) = self.gk_vol_reverb_max {
+            bytes.insert([base_msb, 0x00, 0x00, 0x6F], v);
+        }
+        if let Some(v) = self.gk_vol_chorus_min {
+            bytes.insert([base_msb, 0x00, 0x00, 0x70], v);
+        }
+        if let Some(v) = self.gk_vol_chorus_max {
+            bytes.insert([base_msb, 0x00, 0x00, 0x71], v);
         }
         for (k, b) in &self.unknown_bytes {
             let (page, hi, lo) =
@@ -1234,6 +1377,58 @@ mod tests {
         assert_eq!(area.unknown_bytes.get("00:00:50"), Some(&0xBB));
         assert_eq!(area.unknown_bytes.get("00:00:51"), Some(&0xCC));
         assert_eq!(area.unknown_bytes.get("00:00:52"), Some(&0xDD));
+
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
+    }
+
+    #[test]
+    fn gk_volume_block_decodes_and_round_trips() {
+        let payload: Vec<u8> = vec![
+            ExpFunction::ToneVolume.to_byte(),         // 0x5B
+            OnOff::On.to_byte(),                       // 0x5C
+            OnOff::Off.to_byte(),                      // 0x5D
+            OnOff::On.to_byte(),                       // 0x5E
+            OnOff::Off.to_byte(),                      // 0x5F
+            PitchBendDepth::new(-1).unwrap().to_byte(), // 0x60
+            OnOff::On.to_byte(),                       // 0x61
+            OnOff::Off.to_byte(),                      // 0x62
+            OnOff::On.to_byte(),                       // 0x63
+            0x30,                                      // 0x64 mod_min
+            0x60,                                      // 0x65 mod_max
+            OnOff::Off.to_byte(),                      // 0x66
+            OnOff::On.to_byte(),                       // 0x67
+            CrossFaderMode::Toe.to_byte(),             // 0x68
+            CrossFaderMode::Heel.to_byte(),            // 0x69
+            CrossFaderMode::Off.to_byte(),             // 0x6A
+            CrossFaderMode::Toe.to_byte(),             // 0x6B
+            0x08,                                      // 0x6C delay_min
+            0x60,                                      // 0x6D delay_max
+            0x18,                                      // 0x6E reverb_min
+            0x58,                                      // 0x6F reverb_max
+            0x08,                                      // 0x70 chorus_min
+            0x48,                                      // 0x71 chorus_max
+        ];
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x00, 0x00, 0x5B],
+            data: Cow::Owned(payload),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+        assert_eq!(area.gk_vol_function, Some(ExpFunction::ToneVolume));
+        assert_eq!(area.gk_vol_pitch_bend_depth.unwrap().get(), -1);
+        assert_eq!(area.gk_vol_mod_min, Some(0x30));
+        assert_eq!(area.gk_vol_mod_max, Some(0x60));
+        assert_eq!(area.gk_vol_cross_fader_pcm_1, Some(CrossFaderMode::Toe));
+        assert_eq!(area.gk_vol_cross_fader_modeling, Some(CrossFaderMode::Off));
+        assert_eq!(area.gk_vol_delay_max, Some(0x60));
+        assert_eq!(area.gk_vol_chorus_max, Some(0x48));
+        assert!(area.unknown_bytes.is_empty());
+
+        // Distinct from EXP-OFF / EXP-ON / EXP-SW blocks.
+        assert!(area.exp_function.is_none());
+        assert!(area.exp_on_function.is_none());
+        assert!(area.exp_sw_function.is_none());
 
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
