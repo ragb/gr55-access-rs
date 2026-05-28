@@ -1716,7 +1716,7 @@ impl SystemArea {
             let mut setup = GkSetup::default();
             let setup_addrs: Vec<[u8; 4]> = bytes
                 .keys()
-                .filter(|a| a[0] == 0x02 && a[1] == *sub_lsb && a[2] < GK_SETUP_BYTE_COUNT as u8)
+                .filter(|a| a[0] == 0x02 && a[1] == *sub_lsb && a[2] == 0x00)
                 .copied()
                 .collect();
             if setup_addrs.is_empty() {
@@ -1724,7 +1724,7 @@ impl SystemArea {
             }
             for addr in setup_addrs {
                 if let Some(b) = bytes.remove(&addr) {
-                    let offset = addr[2];
+                    let offset = addr[3];
                     if offset < 16 {
                         setup.name.0[offset as usize] = b;
                     } else {
@@ -2088,15 +2088,15 @@ impl SystemArea {
                 continue;
             };
             let sub_lsb = GK_SETUP_SUB_LSBS[i];
-            // Name field: only write characters that aren't the default-pad space,
-            // OR write the whole 16 bytes when any explicit name bytes are present.
+            // Offsets land in `address[3]` to match the multi-byte frame
+            // convention (`address[3]` is incremented by from_frames).
             if !setup.name.is_empty() {
                 for (offset, b) in setup.name.0.iter().enumerate() {
-                    bytes.insert([0x02, sub_lsb, offset as u8, 0x00], *b);
+                    bytes.insert([0x02, sub_lsb, 0x00, offset as u8], *b);
                 }
             }
             for (offset, b) in &setup.raw_bytes {
-                bytes.insert([0x02, sub_lsb, *offset, 0x00], *b);
+                bytes.insert([0x02, sub_lsb, 0x00, *offset], *b);
             }
         }
         for (k, b) in &self.unknown_bytes {
@@ -2708,9 +2708,10 @@ mod tests {
             data: std::borrow::Cow::Owned(payload),
         });
         // GK setup 3 (sub-LSB 0x06): just one byte at offset 0x20 (raw region).
+        // Offsets land in address[3] per the page-0 frame convention.
         frames.push(Frame::Dt1 {
             device_id: 0x10,
-            address: [0x02, 0x06, 0x20, 0x00],
+            address: [0x02, 0x06, 0x00, 0x20],
             data: std::borrow::Cow::Owned(vec![0x55]),
         });
         let area = SystemArea::from_frames(&frames);
