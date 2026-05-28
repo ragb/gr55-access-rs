@@ -639,6 +639,67 @@ pub struct PatchArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gk_vol_chorus_max: Option<u8>,
 
+    // ---- GK S1 block (page 0x00 offsets 0x72..=0x7E) ----
+    // 0x73..=0x76 are FloorBoard placeholders; they fall through.
+    /// GK S1 Function at `0x72`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_function: Option<ExpSwFunction>,
+    /// GK S1 Tone Sw OFF: PCM 1 at `0x77`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_off_pcm_1: Option<OnOff>,
+    /// GK S1 Tone Sw OFF: PCM 2 at `0x78`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_off_pcm_2: Option<OnOff>,
+    /// GK S1 Tone Sw OFF: Modeling at `0x79`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_off_modeling: Option<OnOff>,
+    /// GK S1 Tone Sw OFF: Normal PU at `0x7A`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_off_normal_pu: Option<OnOff>,
+    /// GK S1 Tone Sw ON: PCM 1 at `0x7B`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_on_pcm_1: Option<OnOff>,
+    /// GK S1 Tone Sw ON: PCM 2 at `0x7C`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_on_pcm_2: Option<OnOff>,
+    /// GK S1 Tone Sw ON: Modeling at `0x7D`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_on_modeling: Option<OnOff>,
+    /// GK S1 Tone Sw ON: Normal PU at `0x7E`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_on_normal_pu: Option<OnOff>,
+
+    // ---- GK S2 block (page 0x00 offset 0x7F + page 0x01 offsets 0x00..=0x0B) ----
+    // The Function byte lives at the last offset of page 0x00; the remainder
+    // wraps to page 0x01. Offsets 0x01:00..=0x01:03 are FloorBoard placeholders.
+    /// GK S2 Function at page `0x00` offset `0x7F`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_function: Option<ExpSwFunction>,
+    /// GK S2 Tone Sw OFF: PCM 1 at page `0x01` offset `0x04`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_off_pcm_1: Option<OnOff>,
+    /// GK S2 Tone Sw OFF: PCM 2 at page `0x01` offset `0x05`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_off_pcm_2: Option<OnOff>,
+    /// GK S2 Tone Sw OFF: Modeling at page `0x01` offset `0x06`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_off_modeling: Option<OnOff>,
+    /// GK S2 Tone Sw OFF: Normal PU at page `0x01` offset `0x07`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_off_normal_pu: Option<OnOff>,
+    /// GK S2 Tone Sw ON: PCM 1 at page `0x01` offset `0x08`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_on_pcm_1: Option<OnOff>,
+    /// GK S2 Tone Sw ON: PCM 2 at page `0x01` offset `0x09`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_on_pcm_2: Option<OnOff>,
+    /// GK S2 Tone Sw ON: Modeling at page `0x01` offset `0x0A`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_on_modeling: Option<OnOff>,
+    /// GK S2 Tone Sw ON: Normal PU at page `0x01` offset `0x0B`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_on_normal_pu: Option<OnOff>,
+
     /// Everything inside the patch payload that the typed model doesn't yet
     /// cover. Keys are formatted `"PP:HH:LL"` — page byte, then the two
     /// in-page offset bytes.
@@ -663,13 +724,16 @@ impl PatchArea {
             let mut lo = address[3];
             for &b in data.iter() {
                 area.store(page, hi, lo, b);
-                // Increment little-endian within a page; carry into `hi`
-                // when `lo` wraps, then into the next page if hi also wraps.
-                lo = lo.wrapping_add(1);
-                if lo == 0 {
-                    hi = hi.wrapping_add(1);
-                    if hi == 0 {
-                        page = page.wrapping_add(1);
+                // Roland addresses are 7-bit per byte (0x00..=0x7F).
+                // Advance lo; on overflow past 0x7F, reset to 0 and carry
+                // into hi; on overflow there, into page.
+                lo += 1;
+                if lo > 0x7F {
+                    lo = 0;
+                    hi += 1;
+                    if hi > 0x7F {
+                        hi = 0;
+                        page += 1;
                     }
                 }
             }
@@ -796,6 +860,24 @@ impl PatchArea {
             (0x00, 0x00, 0x6F) if b <= 100 => self.gk_vol_reverb_max = Some(b),
             (0x00, 0x00, 0x70) if b <= 100 => self.gk_vol_chorus_min = Some(b),
             (0x00, 0x00, 0x71) if b <= 100 => self.gk_vol_chorus_max = Some(b),
+            (0x00, 0x00, 0x72) => self.gk_s1_function = ExpSwFunction::from_byte(b),
+            (0x00, 0x00, 0x77) => self.gk_s1_tone_sw_off_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x78) => self.gk_s1_tone_sw_off_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x79) => self.gk_s1_tone_sw_off_modeling = OnOff::from_byte(b),
+            (0x00, 0x00, 0x7A) => self.gk_s1_tone_sw_off_normal_pu = OnOff::from_byte(b),
+            (0x00, 0x00, 0x7B) => self.gk_s1_tone_sw_on_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x7C) => self.gk_s1_tone_sw_on_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x7D) => self.gk_s1_tone_sw_on_modeling = OnOff::from_byte(b),
+            (0x00, 0x00, 0x7E) => self.gk_s1_tone_sw_on_normal_pu = OnOff::from_byte(b),
+            (0x00, 0x00, 0x7F) => self.gk_s2_function = ExpSwFunction::from_byte(b),
+            (0x01, 0x00, 0x04) => self.gk_s2_tone_sw_off_pcm_1 = OnOff::from_byte(b),
+            (0x01, 0x00, 0x05) => self.gk_s2_tone_sw_off_pcm_2 = OnOff::from_byte(b),
+            (0x01, 0x00, 0x06) => self.gk_s2_tone_sw_off_modeling = OnOff::from_byte(b),
+            (0x01, 0x00, 0x07) => self.gk_s2_tone_sw_off_normal_pu = OnOff::from_byte(b),
+            (0x01, 0x00, 0x08) => self.gk_s2_tone_sw_on_pcm_1 = OnOff::from_byte(b),
+            (0x01, 0x00, 0x09) => self.gk_s2_tone_sw_on_pcm_2 = OnOff::from_byte(b),
+            (0x01, 0x00, 0x0A) => self.gk_s2_tone_sw_on_modeling = OnOff::from_byte(b),
+            (0x01, 0x00, 0x0B) => self.gk_s2_tone_sw_on_normal_pu = OnOff::from_byte(b),
             _ => {
                 self.unknown_bytes.insert(format_key(page, hi, lo), b);
             }
@@ -1095,6 +1177,62 @@ impl PatchArea {
         }
         if let Some(v) = self.gk_vol_chorus_max {
             bytes.insert([base_msb, 0x00, 0x00, 0x71], v);
+        }
+        // GK S1 block
+        if let Some(v) = self.gk_s1_function {
+            bytes.insert([base_msb, 0x00, 0x00, 0x72], v.to_byte());
+        }
+        if let Some(v) = self.gk_s1_tone_sw_off_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x77], v.to_byte());
+        }
+        if let Some(v) = self.gk_s1_tone_sw_off_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x78], v.to_byte());
+        }
+        if let Some(v) = self.gk_s1_tone_sw_off_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x79], v.to_byte());
+        }
+        if let Some(v) = self.gk_s1_tone_sw_off_normal_pu {
+            bytes.insert([base_msb, 0x00, 0x00, 0x7A], v.to_byte());
+        }
+        if let Some(v) = self.gk_s1_tone_sw_on_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x7B], v.to_byte());
+        }
+        if let Some(v) = self.gk_s1_tone_sw_on_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x7C], v.to_byte());
+        }
+        if let Some(v) = self.gk_s1_tone_sw_on_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x7D], v.to_byte());
+        }
+        if let Some(v) = self.gk_s1_tone_sw_on_normal_pu {
+            bytes.insert([base_msb, 0x00, 0x00, 0x7E], v.to_byte());
+        }
+        // GK S2 block (page 0x00 + page 0x01)
+        if let Some(v) = self.gk_s2_function {
+            bytes.insert([base_msb, 0x00, 0x00, 0x7F], v.to_byte());
+        }
+        if let Some(v) = self.gk_s2_tone_sw_off_pcm_1 {
+            bytes.insert([base_msb, 0x01, 0x00, 0x04], v.to_byte());
+        }
+        if let Some(v) = self.gk_s2_tone_sw_off_pcm_2 {
+            bytes.insert([base_msb, 0x01, 0x00, 0x05], v.to_byte());
+        }
+        if let Some(v) = self.gk_s2_tone_sw_off_modeling {
+            bytes.insert([base_msb, 0x01, 0x00, 0x06], v.to_byte());
+        }
+        if let Some(v) = self.gk_s2_tone_sw_off_normal_pu {
+            bytes.insert([base_msb, 0x01, 0x00, 0x07], v.to_byte());
+        }
+        if let Some(v) = self.gk_s2_tone_sw_on_pcm_1 {
+            bytes.insert([base_msb, 0x01, 0x00, 0x08], v.to_byte());
+        }
+        if let Some(v) = self.gk_s2_tone_sw_on_pcm_2 {
+            bytes.insert([base_msb, 0x01, 0x00, 0x09], v.to_byte());
+        }
+        if let Some(v) = self.gk_s2_tone_sw_on_modeling {
+            bytes.insert([base_msb, 0x01, 0x00, 0x0A], v.to_byte());
+        }
+        if let Some(v) = self.gk_s2_tone_sw_on_normal_pu {
+            bytes.insert([base_msb, 0x01, 0x00, 0x0B], v.to_byte());
         }
         for (k, b) in &self.unknown_bytes {
             let (page, hi, lo) =
@@ -1432,6 +1570,105 @@ mod tests {
 
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
+    }
+
+    #[test]
+    fn gk_s1_block_decodes_and_round_trips() {
+        let payload: Vec<u8> = vec![
+            ExpSwFunction::ToneSw.to_byte(), // 0x72
+            0x11,                            // 0x73 placeholder
+            0x22,                            // 0x74 placeholder
+            0x33,                            // 0x75 placeholder
+            0x44,                            // 0x76 placeholder
+            OnOff::On.to_byte(),             // 0x77 off_pcm_1
+            OnOff::Off.to_byte(),            // 0x78
+            OnOff::On.to_byte(),             // 0x79
+            OnOff::Off.to_byte(),            // 0x7A
+            OnOff::Off.to_byte(),            // 0x7B on_pcm_1
+            OnOff::On.to_byte(),             // 0x7C
+            OnOff::Off.to_byte(),            // 0x7D
+            OnOff::On.to_byte(),             // 0x7E
+        ];
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x00, 0x00, 0x72],
+            data: Cow::Owned(payload),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+        assert_eq!(area.gk_s1_function, Some(ExpSwFunction::ToneSw));
+        assert_eq!(area.gk_s1_tone_sw_off_pcm_1, Some(OnOff::On));
+        assert_eq!(area.gk_s1_tone_sw_off_normal_pu, Some(OnOff::Off));
+        assert_eq!(area.gk_s1_tone_sw_on_pcm_1, Some(OnOff::Off));
+        assert_eq!(area.gk_s1_tone_sw_on_normal_pu, Some(OnOff::On));
+        // Placeholders preserved.
+        assert_eq!(area.unknown_bytes.get("00:00:73"), Some(&0x11));
+        assert_eq!(area.unknown_bytes.get("00:00:76"), Some(&0x44));
+
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
+    }
+
+    #[test]
+    fn gk_s2_block_spans_page_boundary() {
+        // GK S2 lives at page 0x00 offset 0x7F and continues into page 0x01.
+        // Send it as TWO separate DT1 frames matching the natural Roland
+        // wire convention, then verify decode + page-respecting round-trip.
+        let frames = vec![
+            // Function byte alone at the very end of page 0x00.
+            Frame::Dt1 {
+                device_id: 0x10,
+                address: [TEMP_MSB, 0x00, 0x00, 0x7F],
+                data: Cow::Owned(vec![ExpSwFunction::AmpSw.to_byte()]),
+            },
+            // 4 placeholder bytes + 8 tone-sw bytes at page 0x01.
+            Frame::Dt1 {
+                device_id: 0x10,
+                address: [TEMP_MSB, 0x01, 0x00, 0x00],
+                data: Cow::Owned(vec![
+                    0xAA,
+                    0xBB,
+                    0xCC,
+                    0xDD,
+                    OnOff::On.to_byte(),
+                    OnOff::Off.to_byte(),
+                    OnOff::On.to_byte(),
+                    OnOff::Off.to_byte(),
+                    OnOff::Off.to_byte(),
+                    OnOff::On.to_byte(),
+                    OnOff::Off.to_byte(),
+                    OnOff::On.to_byte(),
+                ]),
+            },
+        ];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+        assert_eq!(area.gk_s2_function, Some(ExpSwFunction::AmpSw));
+        assert_eq!(area.gk_s2_tone_sw_off_pcm_1, Some(OnOff::On));
+        assert_eq!(area.gk_s2_tone_sw_off_normal_pu, Some(OnOff::Off));
+        assert_eq!(area.gk_s2_tone_sw_on_pcm_1, Some(OnOff::Off));
+        assert_eq!(area.gk_s2_tone_sw_on_normal_pu, Some(OnOff::On));
+        // Placeholder bytes at page 0x01 offsets 0x00..=0x03 land in unknown_bytes.
+        assert_eq!(area.unknown_bytes.get("01:00:00"), Some(&0xAA));
+        assert_eq!(area.unknown_bytes.get("01:00:03"), Some(&0xDD));
+
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
+    }
+
+    #[test]
+    fn payload_carries_lo_at_7f_to_next_hi() {
+        // A 3-byte payload starting at lo=0x7E should land at lo=0x7E,
+        // lo=0x7F, then (hi=0x01, lo=0x00) — NOT (hi=0x00, lo=0x80).
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x04, 0x00, 0x7E], // page 0x04 (MFX 2) so no typed match
+            data: Cow::Owned(vec![0xA1, 0xA2, 0xA3]),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+        assert_eq!(area.unknown_bytes.get("04:00:7E"), Some(&0xA1));
+        assert_eq!(area.unknown_bytes.get("04:00:7F"), Some(&0xA2));
+        assert_eq!(area.unknown_bytes.get("04:01:00"), Some(&0xA3));
+        // The wrong (overflow-to-0x80) behaviour would surface here:
+        assert!(!area.unknown_bytes.contains_key("04:00:80"));
     }
 
     #[test]
