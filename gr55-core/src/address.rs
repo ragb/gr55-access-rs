@@ -85,16 +85,43 @@ impl PatchSlot {
         }
     }
 
-    /// Linear patch index used by FloorBoard's address math.
+    /// Linear patch index used by FloorBoard's address math and by the
+    /// System area's Current Patch encoding.
     /// USER slots: `(bank-1) * 3 + (position-1)`, range `0..=296`.
-    /// PRESET slots: same formula plus a constant `USER_PRESET_INDEX_GAP` offset.
-    fn linear_index(&self) -> u32 {
+    /// PRESET slots: same formula plus the constant `USER_PRESET_INDEX_GAP`
+    /// offset, so PRESET 100:1 lands at index `384`.
+    pub fn linear_index(&self) -> u32 {
         let raw = (u32::from(self.bank()) - 1) * u32::from(PATCHES_PER_BANK)
             + u32::from(self.position())
             - 1;
         match self {
             PatchSlot::User { .. } => raw,
             PatchSlot::Preset { .. } => raw + USER_PRESET_INDEX_GAP,
+        }
+    }
+
+    /// Inverse of [`linear_index`]: recover a `PatchSlot` from its global
+    /// patch index. The gap `297..384` between USER and PRESET ranges yields
+    /// `None` (matches FloorBoard's per-knob enum which fills it with `void`).
+    pub fn from_linear_index(idx: u32) -> Option<Self> {
+        let patches_per_bank = u32::from(PATCHES_PER_BANK);
+        let user_slot_count = u32::from(USER_BANKS) * patches_per_bank;
+        let preset_bank_count = u32::from(TOTAL_BANKS - USER_BANKS);
+        let preset_slot_count = preset_bank_count * patches_per_bank;
+        let preset_start = user_slot_count + USER_PRESET_INDEX_GAP;
+        let preset_end = preset_start + preset_slot_count;
+
+        if idx < user_slot_count {
+            let bank = (idx / patches_per_bank + 1) as u8;
+            let position = (idx % patches_per_bank + 1) as u8;
+            Some(PatchSlot::User { bank, position })
+        } else if (preset_start..preset_end).contains(&idx) {
+            let preset_idx = idx - preset_start;
+            let bank = (preset_idx / patches_per_bank) as u8 + USER_BANKS + 1;
+            let position = (preset_idx % patches_per_bank + 1) as u8;
+            Some(PatchSlot::Preset { bank, position })
+        } else {
+            None
         }
     }
 
@@ -118,26 +145,7 @@ impl PatchSlot {
         let row = u32::from(address[0] - PATCH_BASE_MSB);
         let col = u32::from(address[1]);
         let idx = row * SLOTS_PER_ADDRESS_ROW + col;
-
-        let patches_per_bank = u32::from(PATCHES_PER_BANK);
-        let user_slot_count = u32::from(USER_BANKS) * patches_per_bank;
-        let preset_bank_count = u32::from(TOTAL_BANKS - USER_BANKS);
-        let preset_slot_count = preset_bank_count * patches_per_bank;
-        let preset_start = user_slot_count + USER_PRESET_INDEX_GAP;
-        let preset_end = preset_start + preset_slot_count;
-
-        if idx < user_slot_count {
-            let bank = (idx / patches_per_bank + 1) as u8;
-            let position = (idx % patches_per_bank + 1) as u8;
-            Some(PatchSlot::User { bank, position })
-        } else if (preset_start..preset_end).contains(&idx) {
-            let preset_idx = idx - preset_start;
-            let bank = (preset_idx / patches_per_bank) as u8 + USER_BANKS + 1;
-            let position = (preset_idx % patches_per_bank + 1) as u8;
-            Some(PatchSlot::Preset { bank, position })
-        } else {
-            None
-        }
+        Self::from_linear_index(idx)
     }
 }
 

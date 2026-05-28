@@ -24,11 +24,19 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::address::PatchSlot;
 use crate::codec::CodecError;
 use crate::sysex::Frame;
 
-/// Address of the Current Patch parameter byte 0 (MSB 0x01).
-pub const ADDR_CURRENT_PATCH: [u8; 4] = [0x01, 0x00, 0x00, 0x00];
+/// High byte of Current Patch (14-bit MSB-first). Low byte at `[0x01, 0x00, 0x00, 0x01]`.
+/// Decoding: `linear_index = byte_hi * 128 + byte_lo` → `PatchSlot::from_linear_index`.
+/// (The midi.xml structure shows 19 `<DATA value="00".."12">` siblings under
+/// `<PARAM name="Current patch">`, but those represent enum-discriminators for
+/// each possible high-byte value, not separate wire addresses. The wire only
+/// carries two bytes.)
+pub const ADDR_CURRENT_PATCH_HI: [u8; 4] = [0x01, 0x00, 0x00, 0x00];
+/// Low byte of Current Patch.
+pub const ADDR_CURRENT_PATCH_LO: [u8; 4] = [0x01, 0x00, 0x00, 0x01];
 
 /// Address of GK Set (MSB 0x02 page 1 offset 0x00).
 pub const ADDR_GK_SET: [u8; 4] = [0x02, 0x00, 0x00, 0x00];
@@ -491,11 +499,12 @@ impl Mode {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct SystemArea {
-    /// Currently-selected patch byte 0 (LSB) of the multi-byte selector.
-    /// Reported raw because the full multi-byte encoding has not been
-    /// fully verified against a real device. Byte values 0..=127 map to
-    /// `User 01:1` through `User 43:1` per FloorBoard's enum.
-    pub current_patch_byte_0: Option<u8>,
+    /// Currently-selected patch, encoded on the wire as two consecutive 7-bit
+    /// bytes (14-bit MSB-first) — same scheme as the audio levels. Decoded via
+    /// [`PatchSlot::from_linear_index`]; the gap between USER (indices 0..=296)
+    /// and PRESET (indices 384..) yields `None` since it represents reserved
+    /// `void` slots that don't correspond to a real patch.
+    pub current_patch: Option<PatchSlot>,
 
     pub gk_set: Option<GkSet>,
     pub output_select: Option<OutputSelect>,
@@ -561,7 +570,8 @@ impl SystemArea {
         let mut out = SystemArea::default();
         let take = |bytes: &mut BTreeMap<[u8; 4], u8>, addr: [u8; 4]| bytes.remove(&addr);
 
-        out.current_patch_byte_0 = take(&mut bytes, ADDR_CURRENT_PATCH);
+        out.current_patch =
+            consume_current_patch(&mut bytes, ADDR_CURRENT_PATCH_HI, ADDR_CURRENT_PATCH_LO);
 
         out.gk_set = take(&mut bytes, ADDR_GK_SET).and_then(GkSet::from_byte);
         out.output_select = take(&mut bytes, ADDR_OUTPUT_SELECT).and_then(OutputSelect::from_byte);
@@ -615,8 +625,10 @@ impl SystemArea {
 
     fn to_byte_map(&self) -> Result<BTreeMap<[u8; 4], u8>, CodecError> {
         let mut bytes = BTreeMap::new();
-        if let Some(b) = self.current_patch_byte_0 {
-            bytes.insert(ADDR_CURRENT_PATCH, b);
+        if let Some(slot) = self.current_patch {
+            let idx = slot.linear_index();
+            bytes.insert(ADDR_CURRENT_PATCH_HI, (idx / 128) as u8);
+            bytes.insert(ADDR_CURRENT_PATCH_LO, (idx % 128) as u8);
         }
         if let Some(v) = self.gk_set {
             bytes.insert(ADDR_GK_SET, v.to_byte());
@@ -759,6 +771,26 @@ fn consume_audio_level(
     Some(level)
 }
 
+/// Pull both bytes of the Current Patch 14-bit selector out of the byte map
+/// iff both are present and the resulting linear index maps to a real patch
+/// slot (skipping the USER↔PRESET reserved gap).
+fn consume_current_patch(
+    bytes: &mut BTreeMap<[u8; 4], u8>,
+    hi: [u8; 4],
+    lo: [u8; 4],
+) -> Option<PatchSlot> {
+    let hi_byte = *bytes.get(&hi)?;
+    let lo_byte = *bytes.get(&lo)?;
+    if hi_byte > 0x7F || lo_byte > 0x7F {
+        return None;
+    }
+    let idx = u32::from(hi_byte) * 128 + u32::from(lo_byte);
+    let slot = PatchSlot::from_linear_index(idx)?;
+    bytes.remove(&hi);
+    bytes.remove(&lo);
+    Some(slot)
+}
+
 fn parse_addr(s: &str) -> Option<[u8; 4]> {
     let parts: Vec<&str> = s.split(':').collect();
     if parts.len() != 4 {
@@ -816,7 +848,7 @@ mod tests {
     #[test]
     fn typed_fields_roundtrip() {
         let area = SystemArea {
-            current_patch_byte_0: Some(0x05),
+            current_patch: Some(PatchSlot::user(20, 1).unwrap()),
             gk_set: Some(GkSet::User3),
             output_select: Some(OutputSelect::Jc120Amp),
             assign_hold: Some(OnOff::On),
@@ -953,37 +985,34 @@ mod tests {
     #[test]
     fn unknown_bytes_roundtrip_via_map() {
         let mut unknown = BTreeMap::new();
-        unknown.insert("02:00:00:1F".to_string(), 0x42_u8);
         unknown.insert("02:00:02:00".to_string(), 0x11_u8);
         let area = SystemArea {
-            current_patch_byte_0: Some(0x00),
+            current_patch: Some(PatchSlot::user(1, 1).unwrap()),
             unknown_bytes: unknown.clone(),
             ..SystemArea::default()
         };
         let frames = area.to_frames(0x10).unwrap();
         let back = SystemArea::from_frames(&frames);
         assert_eq!(back.unknown_bytes, unknown);
-        assert_eq!(back.current_patch_byte_0, Some(0x00));
+        assert_eq!(back.current_patch, Some(PatchSlot::user(1, 1).unwrap()));
     }
 
     #[test]
-    fn decodes_floorboard_system_syx_first_frame() {
+    fn decodes_floorboard_system_syx_first_frame_as_user_20_1() {
         let bytes: &[u8] = include_bytes!("../tests/fixtures/floorboard_system_area.syx");
         let frames: Vec<Frame<'_>> = parse_frames_unchecked(bytes)
             .map(|r| r.unwrap().0)
             .collect();
         let area = SystemArea::from_frames(&frames);
-        // First frame of system.syx writes [01, 00, 00, 00] = 0x00 and
-        // [01, 00, 00, 01] = 0x39. Byte 0 is the current-patch low byte (0 = User 01:1).
-        assert_eq!(area.current_patch_byte_0, Some(0x00));
-        // Byte 1 isn't yet modeled — it should live under unknown_bytes.
-        assert_eq!(area.unknown_bytes.get("01:00:00:01"), Some(&0x39));
+        // First frame: [01, 00, 00, 00] = 0x00 hi, [01, 00, 00, 01] = 0x39 lo.
+        // 0*128 + 0x39 = 57 = (bank-1)*3 + (position-1) for User 20:1.
+        assert_eq!(area.current_patch, Some(PatchSlot::user(20, 1).unwrap()));
     }
 
     #[test]
     fn yaml_roundtrip() {
         let area = SystemArea {
-            current_patch_byte_0: Some(0x00),
+            current_patch: Some(PatchSlot::user(1, 1).unwrap()),
             midi_channel: Some(MidiChannel::new(1).unwrap()),
             output_select: Some(OutputSelect::LinePhones),
             ..SystemArea::default()
@@ -991,6 +1020,81 @@ mod tests {
         let yaml = serde_yaml::to_string(&area).unwrap();
         let back: SystemArea = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(back, area);
+    }
+
+    #[test]
+    fn current_patch_wire_bytes_match_floorboard_enum() {
+        // Spot-check against the midi.xml `<PARAM name="Current patch">` enum:
+        // byte 0 = 0x00 with byte 1 = 0x00 → User 01:1 (the first entry).
+        let area = SystemArea {
+            current_patch: Some(PatchSlot::user(1, 1).unwrap()),
+            ..SystemArea::default()
+        };
+        let frames = area.to_frames(0x10).unwrap();
+        // Should encode as one DT1 with two payload bytes [0x00, 0x00].
+        assert_eq!(frames.len(), 1);
+        if let Frame::Dt1 { address, data, .. } = &frames[0] {
+            assert_eq!(*address, ADDR_CURRENT_PATCH_HI);
+            assert_eq!(data.as_ref(), &[0, 0]);
+        } else {
+            panic!("expected DT1");
+        }
+
+        // byte 0 = 0x00, byte 1 = 0x7F → idx 127 → User 43:2.
+        let high_user = SystemArea {
+            current_patch: Some(PatchSlot::user(43, 2).unwrap()),
+            ..SystemArea::default()
+        };
+        let frames = high_user.to_frames(0x10).unwrap();
+        if let Frame::Dt1 { data, .. } = &frames[0] {
+            assert_eq!(data.as_ref(), &[0x00, 0x7F]);
+        } else {
+            panic!("expected DT1");
+        }
+
+        // byte 0 = 0x01, byte 1 = 0x00 → idx 128 → User 43:3.
+        let cross_boundary = SystemArea {
+            current_patch: Some(PatchSlot::user(43, 3).unwrap()),
+            ..SystemArea::default()
+        };
+        let frames = cross_boundary.to_frames(0x10).unwrap();
+        if let Frame::Dt1 { data, .. } = &frames[0] {
+            assert_eq!(data.as_ref(), &[0x01, 0x00]);
+        } else {
+            panic!("expected DT1");
+        }
+    }
+
+    #[test]
+    fn current_patch_roundtrips_full_user_range() {
+        for bank in 1..=99_u8 {
+            for position in 1..=3_u8 {
+                let slot = PatchSlot::user(bank, position).unwrap();
+                let area = SystemArea {
+                    current_patch: Some(slot),
+                    ..SystemArea::default()
+                };
+                let frames = area.to_frames(0x10).unwrap();
+                let back = SystemArea::from_frames(&frames);
+                assert_eq!(back.current_patch, Some(slot), "{slot}");
+            }
+        }
+    }
+
+    #[test]
+    fn current_patch_roundtrips_first_and_last_preset() {
+        for slot in [
+            PatchSlot::preset(100, 1).unwrap(),
+            PatchSlot::preset(189, 3).unwrap(),
+        ] {
+            let area = SystemArea {
+                current_patch: Some(slot),
+                ..SystemArea::default()
+            };
+            let frames = area.to_frames(0x10).unwrap();
+            let back = SystemArea::from_frames(&frames);
+            assert_eq!(back.current_patch, Some(slot), "{slot}");
+        }
     }
 
     #[test]
