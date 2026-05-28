@@ -277,6 +277,15 @@ pub const ADDR_GK_S2_TONE_SW_ON_NORMAL_PU: [u8; 4] = [0x02, 0x02, 0x78, 0x00];
 pub const ADDR_VOL_MOD_CONTROL_A: [u8; 4] = [0x02, 0x02, 0x7D, 0x00];
 pub const ADDR_VOL_MOD_CONTROL_B: [u8; 4] = [0x02, 0x02, 0x7E, 0x00];
 
+/// MSB 0x02 sub-LSBs that hold GK setups 1..=10.
+pub const GK_SETUP_SUB_LSBS: [u8; 10] =
+    [0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D];
+
+/// Number of bytes carried per GK setup. midi.xml declares offsets `0x00..=0x7F`
+/// within each setup (with many unused / padding entries); we accept anything in
+/// that range and round-trip it verbatim.
+pub const GK_SETUP_BYTE_COUNT: usize = 128;
+
 /// CTL Pedal Function selector (page 2). 22 enum values; chosen function
 /// determines which sub-fields at `[02, 02, 0x01..0x0C]` are active.
 pub const ADDR_CTL_PEDAL_FUNCTION: [u8; 4] = [0x02, 0x02, 0x00, 0x00];
@@ -1082,6 +1091,64 @@ impl Mode {
 /// `unknown_bytes` captures every address that landed in the dump but isn't
 /// yet modeled as a typed field — this keeps round-trip lossless before each
 /// field gets an enum or struct.
+/// One of the GR-55's 10 GK Pickup setups, each a self-contained pickup +
+/// per-string-level + routing configuration. Lives at sub-LSB `0x04 + index`
+/// of MSB `0x02`.
+///
+/// midi.xml declares ~150 named parameters per setup (16-byte name then a
+/// mix of single-byte enums, signed numeric ranges, and 4-nibble multi-byte
+/// pairs). Until individual setup parameters get typed accessors,
+/// `raw_bytes` holds the wire bytes verbatim, keyed by the offset within the
+/// setup.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", default)]
+pub struct GkSetup {
+    /// Setup name (16 ASCII chars; spaces pad short names). Lifted from
+    /// midi.xml:3642 `<PARAM value="00" abbr="Name1">`; same shape as the
+    /// patch-name field.
+    #[serde(default, skip_serializing_if = "GkSetupName::is_empty")]
+    pub name: GkSetupName,
+
+    /// Every other byte of the setup, keyed by offset within `[0x00..=0x7F]`.
+    /// `name` consumes `0x00..=0x0F`; subsequent typed accessors will move
+    /// entries out of this map as they're added.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub raw_bytes: BTreeMap<u8, u8>,
+}
+
+/// Fixed-length 16-char ASCII name (printable range `0x20..=0x7E`). Used for
+/// GK setup names; the patch-name field has the same shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct GkSetupName(pub [u8; 16]);
+
+impl Default for GkSetupName {
+    fn default() -> Self {
+        GkSetupName([0x20; 16])
+    }
+}
+
+impl GkSetupName {
+    /// True when every character is the space pad byte `0x20` (the default).
+    pub fn is_empty(&self) -> bool {
+        self.0.iter().all(|&b| b == 0x20)
+    }
+
+    /// Return the name as a `String`, replacing non-ASCII bytes with `?`.
+    pub fn as_string(&self) -> String {
+        self.0
+            .iter()
+            .map(|&b| {
+                if (0x20..=0x7E).contains(&b) {
+                    b as char
+                } else {
+                    '?'
+                }
+            })
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", default)]
 pub struct SystemArea {
@@ -1386,6 +1453,12 @@ pub struct SystemArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vol_mod_control_b: Option<u8>,
 
+    /// The 10 GK Pickup setups at sub-LSBs `[02, 0x04..=0x0D, *]`. Each entry
+    /// is `Some` only when at least one of its bytes was present in the
+    /// decoded dump. Order: index 0 = setup 1, …, index 9 = setup 10.
+    #[serde(default, skip_serializing_if = "all_gk_setups_none")]
+    pub gk_setups: [Option<GkSetup>; 10],
+
     /// Every System-area byte not yet promoted to a typed field, keyed by its
     /// full 4-byte wire address. Preserves round-trip and surfaces unknowns to
     /// callers (e.g. `gr55 show` can list them).
@@ -1636,6 +1709,30 @@ impl SystemArea {
         out.alt_tuning_type = take(&mut bytes, ADDR_ALT_TUNING_TYPE);
         for (i, addr) in ADDR_USER_TUNING_SHIFT_STRINGS.iter().enumerate() {
             out.user_tuning_shift_strings[i] = take(&mut bytes, *addr);
+        }
+
+        // Group GK setup bytes by their sub-LSB before they hit unknown_bytes.
+        for (i, sub_lsb) in GK_SETUP_SUB_LSBS.iter().enumerate() {
+            let mut setup = GkSetup::default();
+            let setup_addrs: Vec<[u8; 4]> = bytes
+                .keys()
+                .filter(|a| a[0] == 0x02 && a[1] == *sub_lsb && a[2] < GK_SETUP_BYTE_COUNT as u8)
+                .copied()
+                .collect();
+            if setup_addrs.is_empty() {
+                continue;
+            }
+            for addr in setup_addrs {
+                if let Some(b) = bytes.remove(&addr) {
+                    let offset = addr[2];
+                    if offset < 16 {
+                        setup.name.0[offset as usize] = b;
+                    } else {
+                        setup.raw_bytes.insert(offset, b);
+                    }
+                }
+            }
+            out.gk_setups[i] = Some(setup);
         }
 
         out.unknown_bytes = bytes
@@ -1986,6 +2083,22 @@ impl SystemArea {
                 bytes.insert(*addr, v);
             }
         }
+        for (i, slot) in self.gk_setups.iter().enumerate() {
+            let Some(setup) = slot else {
+                continue;
+            };
+            let sub_lsb = GK_SETUP_SUB_LSBS[i];
+            // Name field: only write characters that aren't the default-pad space,
+            // OR write the whole 16 bytes when any explicit name bytes are present.
+            if !setup.name.is_empty() {
+                for (offset, b) in setup.name.0.iter().enumerate() {
+                    bytes.insert([0x02, sub_lsb, offset as u8, 0x00], *b);
+                }
+            }
+            for (offset, b) in &setup.raw_bytes {
+                bytes.insert([0x02, sub_lsb, *offset, 0x00], *b);
+            }
+        }
         for (k, b) in &self.unknown_bytes {
             let addr = parse_addr(k).ok_or_else(|| CodecError::BadStoredAddress(k.clone()))?;
             bytes.insert(addr, *b);
@@ -2018,6 +2131,10 @@ fn consume_audio_level(
 }
 
 fn user_tuning_shift_all_none(arr: &[Option<u8>; 6]) -> bool {
+    arr.iter().all(Option::is_none)
+}
+
+fn all_gk_setups_none(arr: &[Option<GkSetup>; 10]) -> bool {
     arr.iter().all(Option::is_none)
 }
 
@@ -2247,6 +2364,19 @@ mod tests {
             gk_s2_tone_sw_on_normal_pu: Some(OnOff::Off),
             vol_mod_control_a: Some(0x30),
             vol_mod_control_b: Some(0x70),
+            gk_setups: {
+                let mut s = GkSetup::default();
+                s.name.0[0] = b'M';
+                s.name.0[1] = b'y';
+                s.name.0[2] = b' ';
+                s.name.0[3] = b'G';
+                s.name.0[4] = b'K';
+                s.raw_bytes.insert(0x20, 0x42);
+                s.raw_bytes.insert(0x21, 0x07);
+                let mut arr: [Option<GkSetup>; 10] = Default::default();
+                arr[0] = Some(s);
+                arr
+            },
             unknown_bytes: BTreeMap::new(),
         };
         let frames = area.to_frames(0x10).unwrap();
@@ -2559,6 +2689,48 @@ mod tests {
             assert_eq!(back.ctl_pedal_function, Some(v));
         }
         assert!(CtlPedalFunction::from_byte(0x16).is_none());
+    }
+
+    #[test]
+    fn gk_setup_decode_splits_name_and_raw_bytes() {
+        // Synthesize a system dump with one byte of patch state + GK setup 1
+        // and GK setup 3 partially populated. The decoder should route the
+        // first 16 bytes per setup to its `name` and the rest to `raw_bytes`.
+        let mut frames = Vec::new();
+        // GK setup 1 (sub-LSB 0x04): name "Test" then 0x20 padding, plus byte at 0x10.
+        let mut payload = vec![b'T', b'e', b's', b't'];
+        payload.extend(std::iter::repeat(0x20).take(12)); // 16 chars total
+        payload.push(0x42); // raw at offset 0x10
+        payload.push(0x07); // raw at offset 0x11
+        frames.push(Frame::Dt1 {
+            device_id: 0x10,
+            address: [0x02, 0x04, 0x00, 0x00],
+            data: std::borrow::Cow::Owned(payload),
+        });
+        // GK setup 3 (sub-LSB 0x06): just one byte at offset 0x20 (raw region).
+        frames.push(Frame::Dt1 {
+            device_id: 0x10,
+            address: [0x02, 0x06, 0x20, 0x00],
+            data: std::borrow::Cow::Owned(vec![0x55]),
+        });
+        let area = SystemArea::from_frames(&frames);
+
+        let setup_1 = area.gk_setups[0].as_ref().expect("setup 1 should decode");
+        assert_eq!(setup_1.name.as_string().trim(), "Test");
+        assert_eq!(setup_1.raw_bytes.get(&0x10), Some(&0x42));
+        assert_eq!(setup_1.raw_bytes.get(&0x11), Some(&0x07));
+
+        // Setup 2 (index 1, sub-LSB 0x05) wasn't in the dump.
+        assert!(area.gk_setups[1].is_none());
+
+        let setup_3 = area.gk_setups[2].as_ref().expect("setup 3 should decode");
+        // Only a single byte landed in raw_bytes; name stayed at the default pad.
+        assert!(setup_3.name.is_empty());
+        assert_eq!(setup_3.raw_bytes.get(&0x20), Some(&0x55));
+
+        // Round-trip: re-encode the area and verify the bytes survive.
+        let back = SystemArea::from_frames(&area.to_frames(0x10).unwrap());
+        assert_eq!(back.gk_setups, area.gk_setups);
     }
 
     #[test]
