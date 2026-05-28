@@ -1203,9 +1203,36 @@ pub struct GkSetup {
     /// Bass per-string sensitivity at `0x3B..=0x40` (strings 1..=6).
     #[serde(default, skip_serializing_if = "string_distance_all_none")]
     pub bass_string_sensitivity: [Option<u8>; 6],
+    /// Bass Play Feel at `0x41` (1..=5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_play_feel: Option<PlayFeel>,
+    /// Bass Low Velocity Cut at `0x42` (0..=10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_low_velocity_cut: Option<Rating0To10>,
+    /// Bass Velocity Dynamics at `0x43` (1..=10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_velocity_dynamics: Option<Rating1To10>,
+    /// Bass Nuance Dynamics at `0x44` (0..=10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_nuance_dynamics: Option<Rating0To10>,
+    /// Bass Nuance Trim at `0x45` (0..=10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_nuance_trim: Option<Rating0To10>,
+    /// Bass Down Shift at `0x46` (-5..=0 semitones).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_down_shift: Option<DownShift>,
 
-    /// Every byte at offset `0x41` or later that isn't yet typed. Round-trip
-    /// stays lossless even before each follow-up parameter gets promoted.
+    // ---- Develop Low Cut (per-mode tail at 0x51/0x52) ----
+    /// Guitar Mode "DevelopLowCut" at `0x51` (raw 0..=100 per midi.xml range).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub develop_low_cut_guitar: Option<u8>,
+    /// Bass Mode "DevelopLowCut" at `0x52` (raw 0..=100 per midi.xml range).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub develop_low_cut_bass: Option<u8>,
+
+    /// Every byte at offset `0x47..=0x50` or `>= 0x53` that isn't yet typed.
+    /// Round-trip stays lossless even before each follow-up parameter gets
+    /// promoted.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub raw_bytes: BTreeMap<u8, u8>,
 }
@@ -2247,6 +2274,14 @@ impl SystemArea {
                         0x3B..=0x40 => {
                             setup.bass_string_sensitivity[(offset - 0x3B) as usize] = Some(b);
                         }
+                        0x41 => setup.bass_play_feel = PlayFeel::from_byte(b),
+                        0x42 => setup.bass_low_velocity_cut = Rating0To10::from_byte(b),
+                        0x43 => setup.bass_velocity_dynamics = Rating1To10::from_byte(b),
+                        0x44 => setup.bass_nuance_dynamics = Rating0To10::from_byte(b),
+                        0x45 => setup.bass_nuance_trim = Rating0To10::from_byte(b),
+                        0x46 => setup.bass_down_shift = DownShift::from_byte(b),
+                        0x51 if b <= 100 => setup.develop_low_cut_guitar = Some(b),
+                        0x52 if b <= 100 => setup.develop_low_cut_bass = Some(b),
                         _ => {
                             setup.raw_bytes.insert(offset, b);
                         }
@@ -2717,6 +2752,30 @@ impl SystemArea {
                     bytes.insert([0x02, sub_lsb, 0x00, 0x3B + i as u8], *b);
                 }
             }
+            if let Some(v) = setup.bass_play_feel {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x41], v.to_byte());
+            }
+            if let Some(v) = setup.bass_low_velocity_cut {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x42], v.to_byte());
+            }
+            if let Some(v) = setup.bass_velocity_dynamics {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x43], v.to_byte());
+            }
+            if let Some(v) = setup.bass_nuance_dynamics {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x44], v.to_byte());
+            }
+            if let Some(v) = setup.bass_nuance_trim {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x45], v.to_byte());
+            }
+            if let Some(v) = setup.bass_down_shift {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x46], v.to_byte());
+            }
+            if let Some(v) = setup.develop_low_cut_guitar {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x51], v);
+            }
+            if let Some(v) = setup.develop_low_cut_bass {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x52], v);
+            }
             for (offset, b) in &setup.raw_bytes {
                 bytes.insert([0x02, sub_lsb, 0x00, *offset], *b);
             }
@@ -2997,8 +3056,8 @@ mod tests {
                 s.name.0[2] = b' ';
                 s.name.0[3] = b'G';
                 s.name.0[4] = b'K';
-                s.raw_bytes.insert(0x41, 0x42);
-                s.raw_bytes.insert(0x42, 0x07);
+                s.raw_bytes.insert(0x47, 0x42);
+                s.raw_bytes.insert(0x48, 0x07);
                 let mut arr: [Option<GkSetup>; 10] = Default::default();
                 arr[0] = Some(s);
                 arr
@@ -3398,17 +3457,29 @@ mod tests {
         payload.push(PiezoGain::new(2).unwrap().to_byte()); // 0x34 bass piezo_high
         payload.extend([0x10, 0x20, 0x30, 0x40, 0x50, 0x60]); // 0x35..0x3A bass distance
         payload.extend([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]); // 0x3B..0x40 bass sensitivity
-        payload.push(0xEE); // 0x41 still-raw straggler
+        payload.push(PlayFeel::new(2).unwrap().to_byte()); // 0x41 bass play_feel
+        payload.push(Rating0To10::new(4).unwrap().to_byte()); // 0x42 bass low_vel_cut
+        payload.push(Rating1To10::new(6).unwrap().to_byte()); // 0x43 bass vel_dyn
+        payload.push(Rating0To10::new(7).unwrap().to_byte()); // 0x44 bass nuance_dyn
+        payload.push(Rating0To10::new(1).unwrap().to_byte()); // 0x45 bass nuance_trim
+        payload.push(DownShift::new(-2).unwrap().to_byte()); // 0x46 bass down_shift
+        payload.push(0xEE); // 0x47 still-raw straggler (unmapped slot)
         frames.push(Frame::Dt1 {
             device_id: 0x10,
             address: [0x02, 0x04, 0x00, 0x00],
             data: std::borrow::Cow::Owned(payload),
         });
-        // GK setup 3 (sub-LSB 0x06): just one byte at offset 0x41 (still raw).
+        // Develop Low Cut tail for setup 1.
+        frames.push(Frame::Dt1 {
+            device_id: 0x10,
+            address: [0x02, 0x04, 0x00, 0x51],
+            data: std::borrow::Cow::Owned(vec![0x32, 0x14]), // 0x51=50, 0x52=20
+        });
+        // GK setup 3 (sub-LSB 0x06): just one byte at offset 0x47 (still raw).
         // Offsets land in address[3] per the page-0 frame convention.
         frames.push(Frame::Dt1 {
             device_id: 0x10,
-            address: [0x02, 0x06, 0x00, 0x41],
+            address: [0x02, 0x06, 0x00, 0x47],
             data: std::borrow::Cow::Owned(vec![0x55]),
         });
         let area = SystemArea::from_frames(&frames);
@@ -3453,7 +3524,15 @@ mod tests {
         assert_eq!(setup_1.bass_string_distance_bridge[5], Some(0x60));
         assert_eq!(setup_1.bass_string_sensitivity[0], Some(0x01));
         assert_eq!(setup_1.bass_string_sensitivity[5], Some(0x06));
-        assert_eq!(setup_1.raw_bytes.get(&0x41), Some(&0xEE));
+        assert_eq!(setup_1.bass_play_feel.unwrap().get(), 2);
+        assert_eq!(setup_1.bass_low_velocity_cut.unwrap().get(), 4);
+        assert_eq!(setup_1.bass_velocity_dynamics.unwrap().get(), 6);
+        assert_eq!(setup_1.bass_nuance_dynamics.unwrap().get(), 7);
+        assert_eq!(setup_1.bass_nuance_trim.unwrap().get(), 1);
+        assert_eq!(setup_1.bass_down_shift.unwrap().semitones(), -2);
+        assert_eq!(setup_1.develop_low_cut_guitar, Some(50));
+        assert_eq!(setup_1.develop_low_cut_bass, Some(20));
+        assert_eq!(setup_1.raw_bytes.get(&0x47), Some(&0xEE));
 
         // Setup 2 (index 1, sub-LSB 0x05) wasn't in the dump.
         assert!(area.gk_setups[1].is_none());
@@ -3462,7 +3541,7 @@ mod tests {
         // Only a single byte landed in raw_bytes; name stayed at the default pad.
         assert!(setup_3.name.is_empty());
         assert!(setup_3.bass_name.is_empty());
-        assert_eq!(setup_3.raw_bytes.get(&0x41), Some(&0x55));
+        assert_eq!(setup_3.raw_bytes.get(&0x47), Some(&0x55));
 
         // Round-trip: re-encode the area and verify the bytes survive.
         let back = SystemArea::from_frames(&area.to_frames(0x10).unwrap());
