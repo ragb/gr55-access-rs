@@ -1130,9 +1130,42 @@ pub struct GkSetup {
     /// Normal Pickup Gain at offset `0x0E` (-20..=+20 dB).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub normal_pu_gain: Option<NormalPuGain>,
+    /// Piezo Low gain at offset `0x0F` (-10..=+10 dB).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub piezo_low: Option<PiezoGain>,
+    /// Piezo High gain at offset `0x10`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub piezo_high: Option<PiezoGain>,
+    /// Hex pickup-bridge distance per string (`0x11..=0x16`, strings 1..6).
+    /// midi.xml documents this as a numeric range but doesn't name the units;
+    /// stored raw until verified.
+    #[serde(default, skip_serializing_if = "string_distance_all_none")]
+    pub string_distance_bridge: [Option<u8>; 6],
+    /// Per-string sensitivity (`0x17..=0x1C`, strings 1..6). Raw byte.
+    #[serde(default, skip_serializing_if = "string_distance_all_none")]
+    pub string_sensitivity: [Option<u8>; 6],
+    /// Play Feel at offset `0x1D` (1..=5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub play_feel: Option<PlayFeel>,
+    /// Low velocity cut at offset `0x1E` (0..=10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub low_velocity_cut: Option<Rating0To10>,
+    /// Velocity dynamics at offset `0x1F` (1..=10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub velocity_dynamics: Option<Rating1To10>,
+    /// Nuance dynamics at offset `0x20` (0..=10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nuance_dynamics: Option<Rating0To10>,
+    /// Nuance trim at offset `0x21` (0..=10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nuance_trim: Option<Rating0To10>,
+    /// Down shift at offset `0x22` (-5..=0 semitones).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub down_shift: Option<DownShift>,
 
-    /// Every byte at offset `0x0F` or later that isn't yet typed. Round-trip
-    /// stays lossless even before each follow-up parameter gets promoted.
+    /// Every byte at offset `0x23` or later that isn't yet typed (the second
+    /// `Name1..7` section + a few stragglers). Round-trip stays lossless
+    /// even before each follow-up parameter gets promoted.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub raw_bytes: BTreeMap<u8, u8>,
 }
@@ -1339,6 +1372,140 @@ impl NormalPuGain {
     }
     fn to_byte(self) -> u8 {
         (self.0 + 20) as u8
+    }
+}
+
+/// Piezo Low / Piezo High pickup gain in dB, `-10..=+10`. Wire byte = `dB + 10`.
+/// midi.xml:4736-4781.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PiezoGain(i8);
+
+impl PiezoGain {
+    pub fn new(db: i8) -> Option<Self> {
+        if (-10..=10).contains(&db) {
+            Some(PiezoGain(db))
+        } else {
+            None
+        }
+    }
+    pub fn db(self) -> i8 {
+        self.0
+    }
+    fn from_byte(b: u8) -> Option<Self> {
+        if b <= 20 {
+            Some(PiezoGain((b as i8) - 10))
+        } else {
+            None
+        }
+    }
+    fn to_byte(self) -> u8 {
+        (self.0 + 10) as u8
+    }
+}
+
+/// Play feel — 1..=5. midi.xml:5058-5063.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PlayFeel(u8);
+
+impl PlayFeel {
+    pub fn new(value: u8) -> Option<Self> {
+        if (1..=5).contains(&value) {
+            Some(PlayFeel(value))
+        } else {
+            None
+        }
+    }
+    pub fn get(self) -> u8 {
+        self.0
+    }
+    fn from_byte(b: u8) -> Option<Self> {
+        if b <= 4 {
+            Some(PlayFeel(b + 1))
+        } else {
+            None
+        }
+    }
+    fn to_byte(self) -> u8 {
+        self.0 - 1
+    }
+}
+
+/// 0..=10 rating (wire = user value). Shared by Low velocity cut, Nuance
+/// dynamics, Nuance trim per midi.xml:5065-5114.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Rating0To10(u8);
+
+impl Rating0To10 {
+    pub fn new(value: u8) -> Option<Self> {
+        if value <= 10 {
+            Some(Rating0To10(value))
+        } else {
+            None
+        }
+    }
+    pub fn get(self) -> u8 {
+        self.0
+    }
+    fn from_byte(b: u8) -> Option<Self> {
+        Self::new(b)
+    }
+    fn to_byte(self) -> u8 {
+        self.0
+    }
+}
+
+/// 1..=10 rating. Used by Velocity dynamics per midi.xml:5078-5088.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Rating1To10(u8);
+
+impl Rating1To10 {
+    pub fn new(value: u8) -> Option<Self> {
+        if (1..=10).contains(&value) {
+            Some(Rating1To10(value))
+        } else {
+            None
+        }
+    }
+    pub fn get(self) -> u8 {
+        self.0
+    }
+    fn from_byte(b: u8) -> Option<Self> {
+        Self::new(b)
+    }
+    fn to_byte(self) -> u8 {
+        self.0
+    }
+}
+
+/// Down Shift in semitones, `-5..=0`. Wire byte = `-value`. midi.xml:5116-5122.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct DownShift(i8);
+
+impl DownShift {
+    pub fn new(semitones: i8) -> Option<Self> {
+        if (-5..=0).contains(&semitones) {
+            Some(DownShift(semitones))
+        } else {
+            None
+        }
+    }
+    pub fn semitones(self) -> i8 {
+        self.0
+    }
+    fn from_byte(b: u8) -> Option<Self> {
+        if b <= 5 {
+            Some(DownShift(-(b as i8)))
+        } else {
+            None
+        }
+    }
+    fn to_byte(self) -> u8 {
+        (-self.0) as u8
     }
 }
 
@@ -1927,6 +2094,20 @@ impl SystemArea {
                         0x0C => setup.pu_direction = PuDirection::from_byte(b),
                         0x0D => setup.s1_s2_position = S1S2Position::from_byte(b),
                         0x0E => setup.normal_pu_gain = NormalPuGain::from_byte(b),
+                        0x0F => setup.piezo_low = PiezoGain::from_byte(b),
+                        0x10 => setup.piezo_high = PiezoGain::from_byte(b),
+                        0x11..=0x16 => {
+                            setup.string_distance_bridge[(offset - 0x11) as usize] = Some(b);
+                        }
+                        0x17..=0x1C => {
+                            setup.string_sensitivity[(offset - 0x17) as usize] = Some(b);
+                        }
+                        0x1D => setup.play_feel = PlayFeel::from_byte(b),
+                        0x1E => setup.low_velocity_cut = Rating0To10::from_byte(b),
+                        0x1F => setup.velocity_dynamics = Rating1To10::from_byte(b),
+                        0x20 => setup.nuance_dynamics = Rating0To10::from_byte(b),
+                        0x21 => setup.nuance_trim = Rating0To10::from_byte(b),
+                        0x22 => setup.down_shift = DownShift::from_byte(b),
                         _ => {
                             setup.raw_bytes.insert(offset, b);
                         }
@@ -2317,6 +2498,40 @@ impl SystemArea {
             if let Some(v) = setup.normal_pu_gain {
                 bytes.insert([0x02, sub_lsb, 0x00, 0x0E], v.to_byte());
             }
+            if let Some(v) = setup.piezo_low {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x0F], v.to_byte());
+            }
+            if let Some(v) = setup.piezo_high {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x10], v.to_byte());
+            }
+            for (i, v) in setup.string_distance_bridge.iter().enumerate() {
+                if let Some(b) = v {
+                    bytes.insert([0x02, sub_lsb, 0x00, 0x11 + i as u8], *b);
+                }
+            }
+            for (i, v) in setup.string_sensitivity.iter().enumerate() {
+                if let Some(b) = v {
+                    bytes.insert([0x02, sub_lsb, 0x00, 0x17 + i as u8], *b);
+                }
+            }
+            if let Some(v) = setup.play_feel {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x1D], v.to_byte());
+            }
+            if let Some(v) = setup.low_velocity_cut {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x1E], v.to_byte());
+            }
+            if let Some(v) = setup.velocity_dynamics {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x1F], v.to_byte());
+            }
+            if let Some(v) = setup.nuance_dynamics {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x20], v.to_byte());
+            }
+            if let Some(v) = setup.nuance_trim {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x21], v.to_byte());
+            }
+            if let Some(v) = setup.down_shift {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x22], v.to_byte());
+            }
             for (offset, b) in &setup.raw_bytes {
                 bytes.insert([0x02, sub_lsb, 0x00, *offset], *b);
             }
@@ -2357,6 +2572,10 @@ fn user_tuning_shift_all_none(arr: &[Option<u8>; 6]) -> bool {
 }
 
 fn all_gk_setups_none(arr: &[Option<GkSetup>; 10]) -> bool {
+    arr.iter().all(Option::is_none)
+}
+
+fn string_distance_all_none(arr: &[Option<u8>; 6]) -> bool {
     arr.iter().all(Option::is_none)
 }
 
@@ -2593,8 +2812,8 @@ mod tests {
                 s.name.0[2] = b' ';
                 s.name.0[3] = b'G';
                 s.name.0[4] = b'K';
-                s.raw_bytes.insert(0x20, 0x42);
-                s.raw_bytes.insert(0x21, 0x07);
+                s.raw_bytes.insert(0x40, 0x42);
+                s.raw_bytes.insert(0x41, 0x07);
                 let mut arr: [Option<GkSetup>; 10] = Default::default();
                 arr[0] = Some(s);
                 arr
@@ -2969,9 +3188,19 @@ mod tests {
         payload.push(PuDirection::Reverse.to_byte()); // 0x0C pu_direction
         payload.push(S1S2Position::Reverse.to_byte()); // 0x0D s1_s2_position
         payload.push(NormalPuGain::new(-5).unwrap().to_byte()); // 0x0E
-        payload.push(0xAA); // 0x0F raw byte
-        payload.push(0x42); // 0x10 raw byte
-        payload.push(0x07); // 0x11 raw byte
+        payload.push(PiezoGain::new(3).unwrap().to_byte()); // 0x0F
+        payload.push(PiezoGain::new(-2).unwrap().to_byte()); // 0x10
+        payload.push(0x11); // 0x11 string_distance_bridge[0]
+        payload.push(0x22); // 0x12 string_distance_bridge[1]
+        payload.extend([0x33, 0x44, 0x55, 0x66]); // 0x13..0x16 (strings 3..6)
+        payload.extend([0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC]); // 0x17..0x1C string_sensitivity
+        payload.push(PlayFeel::new(3).unwrap().to_byte()); // 0x1D
+        payload.push(Rating0To10::new(5).unwrap().to_byte()); // 0x1E low_velocity_cut
+        payload.push(Rating1To10::new(7).unwrap().to_byte()); // 0x1F velocity_dynamics
+        payload.push(Rating0To10::new(8).unwrap().to_byte()); // 0x20 nuance_dynamics
+        payload.push(Rating0To10::new(2).unwrap().to_byte()); // 0x21 nuance_trim
+        payload.push(DownShift::new(-3).unwrap().to_byte()); // 0x22 down_shift
+        payload.push(0xEE); // 0x23 raw (2nd Name section)
         frames.push(Frame::Dt1 {
             device_id: 0x10,
             address: [0x02, 0x04, 0x00, 0x00],
@@ -2995,9 +3224,19 @@ mod tests {
         assert_eq!(setup_1.pu_direction, Some(PuDirection::Reverse));
         assert_eq!(setup_1.s1_s2_position, Some(S1S2Position::Reverse));
         assert_eq!(setup_1.normal_pu_gain.unwrap().db(), -5);
-        assert_eq!(setup_1.raw_bytes.get(&0x0F), Some(&0xAA));
-        assert_eq!(setup_1.raw_bytes.get(&0x10), Some(&0x42));
-        assert_eq!(setup_1.raw_bytes.get(&0x11), Some(&0x07));
+        assert_eq!(setup_1.piezo_low.unwrap().db(), 3);
+        assert_eq!(setup_1.piezo_high.unwrap().db(), -2);
+        assert_eq!(setup_1.string_distance_bridge[0], Some(0x11));
+        assert_eq!(setup_1.string_distance_bridge[5], Some(0x66));
+        assert_eq!(setup_1.string_sensitivity[0], Some(0x77));
+        assert_eq!(setup_1.string_sensitivity[5], Some(0xCC));
+        assert_eq!(setup_1.play_feel.unwrap().get(), 3);
+        assert_eq!(setup_1.low_velocity_cut.unwrap().get(), 5);
+        assert_eq!(setup_1.velocity_dynamics.unwrap().get(), 7);
+        assert_eq!(setup_1.nuance_dynamics.unwrap().get(), 8);
+        assert_eq!(setup_1.nuance_trim.unwrap().get(), 2);
+        assert_eq!(setup_1.down_shift.unwrap().semitones(), -3);
+        assert_eq!(setup_1.raw_bytes.get(&0x23), Some(&0xEE));
 
         // Setup 2 (index 1, sub-LSB 0x05) wasn't in the dump.
         assert!(area.gk_setups[1].is_none());
