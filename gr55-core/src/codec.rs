@@ -25,4 +25,10 @@ pub enum CodecError {
 
     #[error("RQ1 payload must be exactly 4 bytes, got {0}")]
     BadRq1Size(usize),
+
+    #[error("pedal CC# {0} is not representable on the wire (allowed: off, 1..=31, 64..=95)")]
+    PedalCcOutOfRange(u8),
+
+    #[error("invalid address key in SystemArea.unknown_bytes: {0:?}")]
+    BadStoredAddress(String),
 }

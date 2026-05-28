@@ -83,7 +83,8 @@ struct LeafParam {
 fn collect_params(section: Node) -> Vec<LeafParam> {
     let mut out = Vec::new();
     let mut path = Vec::new();
-    walk(section, &mut path, &mut out);
+    let mut names = Vec::new();
+    walk(section, &mut path, &mut names, &mut out);
     out
 }
 
@@ -93,11 +94,21 @@ fn collect_params(section: Node) -> Vec<LeafParam> {
 ///
 /// Heuristic: a node is a leaf parameter when it has `<PARAM value="…" name="…"/>`
 /// children that themselves have no children. Otherwise it's a structural wrapper.
-fn walk(node: Node, path: &mut Vec<u8>, out: &mut Vec<LeafParam>) {
+///
+/// `names` is a stack of non-empty parameter labels collected from ancestors.
+/// Multi-byte parameters in FloorBoard's XML are encoded as
+/// `<PARAM name="…"><DATA value="…">…enum values…</DATA></PARAM>`, so the
+/// leaf `<DATA>` has no name — we inherit the parent's.
+fn walk(node: Node, path: &mut Vec<u8>, names: &mut Vec<String>, out: &mut Vec<LeafParam>) {
     let value_byte = hex_value_attr(node);
+    let node_name = leaf_param_name(node);
+    let pushed_name = !node_name.is_empty();
 
     if let Some(v) = value_byte {
         path.push(v);
+    }
+    if pushed_name {
+        names.push(node_name.clone());
     }
 
     let children: Vec<Node> = node.children().filter(|n| n.is_element()).collect();
@@ -111,17 +122,21 @@ fn walk(node: Node, path: &mut Vec<u8>, out: &mut Vec<LeafParam>) {
                 Some((v, name))
             })
             .collect();
+        let name = names.last().cloned().unwrap_or_default();
         out.push(LeafParam {
             path: path.clone(),
-            name: leaf_param_name(node),
+            name,
             enum_values,
         });
     } else {
         for child in children {
-            walk(child, path, out);
+            walk(child, path, names, out);
         }
     }
 
+    if pushed_name {
+        names.pop();
+    }
     if value_byte.is_some() {
         path.pop();
     }
@@ -146,7 +161,19 @@ fn leaf_value_name(n: Node) -> String {
 }
 
 fn leaf_param_name(n: Node) -> String {
-    for attr in &["abbr", "name", "desc", "customdesc"] {
+    // FloorBoard's XML stores the descriptive parameter label in different
+    // attributes depending on tag:
+    //   - `<PARAM name="Output Select" abbr="" customdesc="Output Select">`
+    //     uses `name` for the label; `abbr` (when present) is a short tag
+    //     orthogonal to the name, e.g. `<PARAM name="GK Set" abbr="Both Modes">`.
+    //   - `<DATA value="00" name="" abbr="Guitar/Bass Mode" customdesc="Mode">`
+    //     leaves `name` empty and puts the descriptive label in `abbr`.
+    // Use tag-aware priority so both forms surface their human-readable label.
+    let priority: &[&str] = match n.tag_name().name() {
+        "DATA" => &["abbr", "name", "customdesc", "desc"],
+        _ => &["name", "customdesc", "abbr", "desc"],
+    };
+    for attr in priority {
         if let Some(v) = n.attribute(*attr) {
             let t = v.trim();
             if !t.is_empty() {

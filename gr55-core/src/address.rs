@@ -267,13 +267,34 @@ mod tests {
     #[test]
     fn round_trip_via_address() {
         let cases = [
-            PatchSlot::User { bank: 1, position: 1 },
-            PatchSlot::User { bank: 43, position: 2 },
-            PatchSlot::User { bank: 43, position: 3 },
-            PatchSlot::User { bank: 99, position: 3 },
-            PatchSlot::Preset { bank: 100, position: 1 },
-            PatchSlot::Preset { bank: 150, position: 2 },
-            PatchSlot::Preset { bank: 189, position: 3 },
+            PatchSlot::User {
+                bank: 1,
+                position: 1,
+            },
+            PatchSlot::User {
+                bank: 43,
+                position: 2,
+            },
+            PatchSlot::User {
+                bank: 43,
+                position: 3,
+            },
+            PatchSlot::User {
+                bank: 99,
+                position: 3,
+            },
+            PatchSlot::Preset {
+                bank: 100,
+                position: 1,
+            },
+            PatchSlot::Preset {
+                bank: 150,
+                position: 2,
+            },
+            PatchSlot::Preset {
+                bank: 189,
+                position: 3,
+            },
         ];
         for slot in cases {
             let addr = slot.address();
@@ -297,9 +318,18 @@ mod tests {
     #[test]
     fn parse_roundtrip() {
         for slot in [
-            PatchSlot::User { bank: 1, position: 1 },
-            PatchSlot::User { bank: 99, position: 3 },
-            PatchSlot::Preset { bank: 100, position: 1 },
+            PatchSlot::User {
+                bank: 1,
+                position: 1,
+            },
+            PatchSlot::User {
+                bank: 99,
+                position: 3,
+            },
+            PatchSlot::Preset {
+                bank: 100,
+                position: 1,
+            },
         ] {
             let s = slot.to_string();
             let parsed: PatchSlot = s.parse().unwrap();
@@ -342,11 +372,17 @@ mod tests {
         );
         assert!(matches!(
             AddressSpace::classify([0x20, 0x00, 0x00, 0x00]),
-            AddressSpace::UserPatch(PatchSlot::User { bank: 1, position: 1 })
+            AddressSpace::UserPatch(PatchSlot::User {
+                bank: 1,
+                position: 1
+            })
         ));
         assert!(matches!(
             AddressSpace::classify([0x23, 0x00, 0x00, 0x00]),
-            AddressSpace::PresetPatch(PatchSlot::Preset { bank: 100, position: 1 })
+            AddressSpace::PresetPatch(PatchSlot::Preset {
+                bank: 100,
+                position: 1
+            })
         ));
         assert_eq!(
             AddressSpace::classify([0x7F, 0x00, 0x00, 0x00]),
