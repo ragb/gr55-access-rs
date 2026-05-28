@@ -1163,9 +1163,49 @@ pub struct GkSetup {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub down_shift: Option<DownShift>,
 
-    /// Every byte at offset `0x23` or later that isn't yet typed (the second
-    /// `Name1..7` section + a few stragglers). Round-trip stays lossless
-    /// even before each follow-up parameter gets promoted.
+    // ---- Bass Mode parallel configuration (offsets 0x23..0x40) ----
+    /// Bass Mode setup name (8 ASCII chars, offsets `0x23..=0x2A`).
+    #[serde(default, skip_serializing_if = "GkSetupName::is_empty")]
+    pub bass_name: GkSetupName,
+    /// Bass-mode Hex Pickup at `0x2B`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_hex_pu_type: Option<BassHexPuType>,
+    /// Bass Scale at `0x2C` (raw 0..=15 per midi.xml range; stored u8).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_scale: Option<u8>,
+    /// Bass LSB at `0x2D` (raw 0..=15 per midi.xml range).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_lsb: Option<u8>,
+    /// GK pickup position at `0x2E` — Bass-Mode-only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_gk_pu_position: Option<GkPuPosition>,
+    /// Bass PU phase at `0x2F`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_pu_phase: Option<PuPhase>,
+    /// Bass PU direction at `0x30`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_pu_direction: Option<PuDirection>,
+    /// Bass S1/S2 position at `0x31`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_s1_s2_position: Option<S1S2Position>,
+    /// Bass Normal PU Gain at `0x32` (-20..=+20 dB).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_normal_pu_gain: Option<NormalPuGain>,
+    /// Bass Piezo Low gain at `0x33`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_piezo_low: Option<PiezoGain>,
+    /// Bass Piezo High gain at `0x34`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bass_piezo_high: Option<PiezoGain>,
+    /// Bass per-string distance from bridge at `0x35..=0x3A` (strings 1..=6).
+    #[serde(default, skip_serializing_if = "string_distance_all_none")]
+    pub bass_string_distance_bridge: [Option<u8>; 6],
+    /// Bass per-string sensitivity at `0x3B..=0x40` (strings 1..=6).
+    #[serde(default, skip_serializing_if = "string_distance_all_none")]
+    pub bass_string_sensitivity: [Option<u8>; 6],
+
+    /// Every byte at offset `0x41` or later that isn't yet typed. Round-trip
+    /// stays lossless even before each follow-up parameter gets promoted.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub raw_bytes: BTreeMap<u8, u8>,
 }
@@ -1506,6 +1546,88 @@ impl DownShift {
     }
     fn to_byte(self) -> u8 {
         (-self.0) as u8
+    }
+}
+
+/// Bass-mode Hex Pickup model. Distinct from `HexPuType` (Guitar Mode) —
+/// only 5 entries, omits Piezo Fishman and Piezo L.R. Baggs.
+/// midi.xml:6148-6153 `<PARAM value="2B" abbr="Bass Mode" customdesc="Hex PU Type">`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BassHexPuType {
+    Gk3b,
+    Gk2b,
+    PiezoFlat,
+    PiezoGraphtech,
+    PiezoRmc,
+}
+
+impl BassHexPuType {
+    fn from_byte(b: u8) -> Option<Self> {
+        use BassHexPuType::*;
+        Some(match b {
+            0x00 => Gk3b,
+            0x01 => Gk2b,
+            0x02 => PiezoFlat,
+            0x03 => PiezoGraphtech,
+            0x04 => PiezoRmc,
+            _ => return None,
+        })
+    }
+    fn to_byte(self) -> u8 {
+        use BassHexPuType::*;
+        match self {
+            Gk3b => 0x00,
+            Gk2b => 0x01,
+            PiezoFlat => 0x02,
+            PiezoGraphtech => 0x03,
+            PiezoRmc => 0x04,
+        }
+    }
+}
+
+/// GK pickup position — Bass-Mode-only; selects how the pickup is aligned
+/// across the strings on the bass. midi.xml:6161-6169 (8 variants).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GkPuPosition {
+    FourString1,
+    FourString2,
+    FourString3,
+    FiveStringLow1,
+    FiveStringLow2,
+    FiveStringHigh1,
+    FiveStringHigh2,
+    SixString,
+}
+
+impl GkPuPosition {
+    fn from_byte(b: u8) -> Option<Self> {
+        use GkPuPosition::*;
+        Some(match b {
+            0x00 => FourString1,
+            0x01 => FourString2,
+            0x02 => FourString3,
+            0x03 => FiveStringLow1,
+            0x04 => FiveStringLow2,
+            0x05 => FiveStringHigh1,
+            0x06 => FiveStringHigh2,
+            0x07 => SixString,
+            _ => return None,
+        })
+    }
+    fn to_byte(self) -> u8 {
+        use GkPuPosition::*;
+        match self {
+            FourString1 => 0x00,
+            FourString2 => 0x01,
+            FourString3 => 0x02,
+            FiveStringLow1 => 0x03,
+            FiveStringLow2 => 0x04,
+            FiveStringHigh1 => 0x05,
+            FiveStringHigh2 => 0x06,
+            SixString => 0x07,
+        }
     }
 }
 
@@ -2108,6 +2230,23 @@ impl SystemArea {
                         0x20 => setup.nuance_dynamics = Rating0To10::from_byte(b),
                         0x21 => setup.nuance_trim = Rating0To10::from_byte(b),
                         0x22 => setup.down_shift = DownShift::from_byte(b),
+                        0x23..=0x2A => setup.bass_name.0[(offset - 0x23) as usize] = b,
+                        0x2B => setup.bass_hex_pu_type = BassHexPuType::from_byte(b),
+                        0x2C => setup.bass_scale = Some(b),
+                        0x2D => setup.bass_lsb = Some(b),
+                        0x2E => setup.bass_gk_pu_position = GkPuPosition::from_byte(b),
+                        0x2F => setup.bass_pu_phase = PuPhase::from_byte(b),
+                        0x30 => setup.bass_pu_direction = PuDirection::from_byte(b),
+                        0x31 => setup.bass_s1_s2_position = S1S2Position::from_byte(b),
+                        0x32 => setup.bass_normal_pu_gain = NormalPuGain::from_byte(b),
+                        0x33 => setup.bass_piezo_low = PiezoGain::from_byte(b),
+                        0x34 => setup.bass_piezo_high = PiezoGain::from_byte(b),
+                        0x35..=0x3A => {
+                            setup.bass_string_distance_bridge[(offset - 0x35) as usize] = Some(b);
+                        }
+                        0x3B..=0x40 => {
+                            setup.bass_string_sensitivity[(offset - 0x3B) as usize] = Some(b);
+                        }
                         _ => {
                             setup.raw_bytes.insert(offset, b);
                         }
@@ -2532,6 +2671,52 @@ impl SystemArea {
             if let Some(v) = setup.down_shift {
                 bytes.insert([0x02, sub_lsb, 0x00, 0x22], v.to_byte());
             }
+            // ---- Bass Mode parallel block (0x23..=0x40) ----
+            for (i, b) in setup.bass_name.0.iter().enumerate() {
+                if *b != 0x20 {
+                    bytes.insert([0x02, sub_lsb, 0x00, 0x23 + i as u8], *b);
+                }
+            }
+            if let Some(v) = setup.bass_hex_pu_type {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x2B], v.to_byte());
+            }
+            if let Some(v) = setup.bass_scale {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x2C], v);
+            }
+            if let Some(v) = setup.bass_lsb {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x2D], v);
+            }
+            if let Some(v) = setup.bass_gk_pu_position {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x2E], v.to_byte());
+            }
+            if let Some(v) = setup.bass_pu_phase {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x2F], v.to_byte());
+            }
+            if let Some(v) = setup.bass_pu_direction {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x30], v.to_byte());
+            }
+            if let Some(v) = setup.bass_s1_s2_position {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x31], v.to_byte());
+            }
+            if let Some(v) = setup.bass_normal_pu_gain {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x32], v.to_byte());
+            }
+            if let Some(v) = setup.bass_piezo_low {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x33], v.to_byte());
+            }
+            if let Some(v) = setup.bass_piezo_high {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x34], v.to_byte());
+            }
+            for (i, v) in setup.bass_string_distance_bridge.iter().enumerate() {
+                if let Some(b) = v {
+                    bytes.insert([0x02, sub_lsb, 0x00, 0x35 + i as u8], *b);
+                }
+            }
+            for (i, v) in setup.bass_string_sensitivity.iter().enumerate() {
+                if let Some(b) = v {
+                    bytes.insert([0x02, sub_lsb, 0x00, 0x3B + i as u8], *b);
+                }
+            }
             for (offset, b) in &setup.raw_bytes {
                 bytes.insert([0x02, sub_lsb, 0x00, *offset], *b);
             }
@@ -2812,8 +2997,8 @@ mod tests {
                 s.name.0[2] = b' ';
                 s.name.0[3] = b'G';
                 s.name.0[4] = b'K';
-                s.raw_bytes.insert(0x40, 0x42);
-                s.raw_bytes.insert(0x41, 0x07);
+                s.raw_bytes.insert(0x41, 0x42);
+                s.raw_bytes.insert(0x42, 0x07);
                 let mut arr: [Option<GkSetup>; 10] = Default::default();
                 arr[0] = Some(s);
                 arr
@@ -3172,13 +3357,11 @@ mod tests {
 
     #[test]
     fn gk_setup_decode_splits_name_and_raw_bytes() {
-        // Synthesize a system dump with GK setup 1 (typed fields populated)
-        // and GK setup 3 (single raw byte). The decoder should route the
-        // first 8 bytes per setup to `name`, 0x08..=0x0E to typed accessors,
-        // and the rest to `raw_bytes`.
+        // Synthesize a system dump with GK setup 1 (Guitar + Bass fields
+        // populated) and GK setup 3 (single raw byte). The decoder should
+        // route each offset to its typed accessor and only fall through to
+        // `raw_bytes` for offsets that are not yet typed (>= 0x41).
         let mut frames = Vec::new();
-        // GK setup 1 (sub-LSB 0x04): "Test    " name (4 chars + 4 pad), then
-        // typed fields at 0x08..=0x0E, then raw bytes at 0x10/0x11.
         let mut payload = vec![b'T', b'e', b's', b't'];
         payload.extend(std::iter::repeat(0x20).take(4)); // 8 chars total
         payload.push(HexPuType::Gk3.to_byte()); // 0x08 hex_pu_type
@@ -3200,17 +3383,32 @@ mod tests {
         payload.push(Rating0To10::new(8).unwrap().to_byte()); // 0x20 nuance_dynamics
         payload.push(Rating0To10::new(2).unwrap().to_byte()); // 0x21 nuance_trim
         payload.push(DownShift::new(-3).unwrap().to_byte()); // 0x22 down_shift
-        payload.push(0xEE); // 0x23 raw (2nd Name section)
+        // ---- Bass Mode block ----
+        payload.extend([b'B', b'a', b's', b's']); // 0x23..0x26 bass name
+        payload.extend([0x20, 0x20, 0x20, 0x20]); // 0x27..0x2A bass name pad
+        payload.push(BassHexPuType::Gk2b.to_byte()); // 0x2B
+        payload.push(0x09); // 0x2C bass scale (raw)
+        payload.push(0x07); // 0x2D bass lsb (raw)
+        payload.push(GkPuPosition::FiveStringLow2.to_byte()); // 0x2E
+        payload.push(PuPhase::Inverse.to_byte()); // 0x2F bass pu_phase
+        payload.push(PuDirection::Reverse.to_byte()); // 0x30 bass pu_direction
+        payload.push(S1S2Position::Reverse.to_byte()); // 0x31 bass s1_s2
+        payload.push(NormalPuGain::new(4).unwrap().to_byte()); // 0x32
+        payload.push(PiezoGain::new(-1).unwrap().to_byte()); // 0x33 bass piezo_low
+        payload.push(PiezoGain::new(2).unwrap().to_byte()); // 0x34 bass piezo_high
+        payload.extend([0x10, 0x20, 0x30, 0x40, 0x50, 0x60]); // 0x35..0x3A bass distance
+        payload.extend([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]); // 0x3B..0x40 bass sensitivity
+        payload.push(0xEE); // 0x41 still-raw straggler
         frames.push(Frame::Dt1 {
             device_id: 0x10,
             address: [0x02, 0x04, 0x00, 0x00],
             data: std::borrow::Cow::Owned(payload),
         });
-        // GK setup 3 (sub-LSB 0x06): just one byte at offset 0x40 (still raw).
+        // GK setup 3 (sub-LSB 0x06): just one byte at offset 0x41 (still raw).
         // Offsets land in address[3] per the page-0 frame convention.
         frames.push(Frame::Dt1 {
             device_id: 0x10,
-            address: [0x02, 0x06, 0x00, 0x40],
+            address: [0x02, 0x06, 0x00, 0x41],
             data: std::borrow::Cow::Owned(vec![0x55]),
         });
         let area = SystemArea::from_frames(&frames);
@@ -3236,7 +3434,26 @@ mod tests {
         assert_eq!(setup_1.nuance_dynamics.unwrap().get(), 8);
         assert_eq!(setup_1.nuance_trim.unwrap().get(), 2);
         assert_eq!(setup_1.down_shift.unwrap().semitones(), -3);
-        assert_eq!(setup_1.raw_bytes.get(&0x23), Some(&0xEE));
+        // Bass Mode assertions
+        assert_eq!(setup_1.bass_name.as_string().trim(), "Bass");
+        assert_eq!(setup_1.bass_hex_pu_type, Some(BassHexPuType::Gk2b));
+        assert_eq!(setup_1.bass_scale, Some(0x09));
+        assert_eq!(setup_1.bass_lsb, Some(0x07));
+        assert_eq!(
+            setup_1.bass_gk_pu_position,
+            Some(GkPuPosition::FiveStringLow2)
+        );
+        assert_eq!(setup_1.bass_pu_phase, Some(PuPhase::Inverse));
+        assert_eq!(setup_1.bass_pu_direction, Some(PuDirection::Reverse));
+        assert_eq!(setup_1.bass_s1_s2_position, Some(S1S2Position::Reverse));
+        assert_eq!(setup_1.bass_normal_pu_gain.unwrap().db(), 4);
+        assert_eq!(setup_1.bass_piezo_low.unwrap().db(), -1);
+        assert_eq!(setup_1.bass_piezo_high.unwrap().db(), 2);
+        assert_eq!(setup_1.bass_string_distance_bridge[0], Some(0x10));
+        assert_eq!(setup_1.bass_string_distance_bridge[5], Some(0x60));
+        assert_eq!(setup_1.bass_string_sensitivity[0], Some(0x01));
+        assert_eq!(setup_1.bass_string_sensitivity[5], Some(0x06));
+        assert_eq!(setup_1.raw_bytes.get(&0x41), Some(&0xEE));
 
         // Setup 2 (index 1, sub-LSB 0x05) wasn't in the dump.
         assert!(area.gk_setups[1].is_none());
@@ -3244,7 +3461,8 @@ mod tests {
         let setup_3 = area.gk_setups[2].as_ref().expect("setup 3 should decode");
         // Only a single byte landed in raw_bytes; name stayed at the default pad.
         assert!(setup_3.name.is_empty());
-        assert_eq!(setup_3.raw_bytes.get(&0x40), Some(&0x55));
+        assert!(setup_3.bass_name.is_empty());
+        assert_eq!(setup_3.raw_bytes.get(&0x41), Some(&0x55));
 
         // Round-trip: re-encode the area and verify the bytes survive.
         let back = SystemArea::from_frames(&area.to_frames(0x10).unwrap());
