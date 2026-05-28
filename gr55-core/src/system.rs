@@ -72,6 +72,18 @@ pub const ADDR_MASTER_TUNE: [u8; 4] = [0x02, 0x00, 0x00, 0x17];
 pub const ADDR_TUNER_MUTE: [u8; 4] = [0x02, 0x00, 0x00, 0x18];
 /// Address of Startup Mode (Guitar / Bass).
 pub const ADDR_STARTUP_MODE: [u8; 4] = [0x02, 0x00, 0x00, 0x1A];
+/// High byte of Player Level (two-byte 14-bit value, 0..=200). Low byte at 0x1C.
+pub const ADDR_PLAYER_LEVEL_HI: [u8; 4] = [0x02, 0x00, 0x00, 0x1B];
+/// Low byte of Player Level.
+pub const ADDR_PLAYER_LEVEL_LO: [u8; 4] = [0x02, 0x00, 0x00, 0x1C];
+/// High byte of USB Audio In Level (14-bit, 0..=200). Low byte at 0x1E.
+pub const ADDR_USB_AUDIO_IN_HI: [u8; 4] = [0x02, 0x00, 0x00, 0x1D];
+/// Low byte of USB Audio In Level.
+pub const ADDR_USB_AUDIO_IN_LO: [u8; 4] = [0x02, 0x00, 0x00, 0x1E];
+/// High byte of USB Audio Out Level (14-bit, 0..=200). Low byte at 0x20.
+pub const ADDR_USB_AUDIO_OUT_HI: [u8; 4] = [0x02, 0x00, 0x00, 0x1F];
+/// Low byte of USB Audio Out Level.
+pub const ADDR_USB_AUDIO_OUT_LO: [u8; 4] = [0x02, 0x00, 0x00, 0x20];
 
 /// Reusable Off/On.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -406,6 +418,41 @@ impl MasterTuneHz {
     }
 }
 
+/// A 0..=200 audio level encoded on the wire as two consecutive 7-bit bytes
+/// (MSB-first) using FloorBoard's `customKnob.cpp:112-117` scheme:
+/// `byte_hi = value / 128`, `byte_lo = value % 128`. Used for Player Level,
+/// USB Audio In, and USB Audio Out at offsets `0x1B/0x1D/0x1F` of MSB `0x02`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AudioLevel(u8);
+
+impl AudioLevel {
+    pub fn new(value: u8) -> Option<Self> {
+        if value <= 200 {
+            Some(AudioLevel(value))
+        } else {
+            None
+        }
+    }
+    pub fn get(self) -> u8 {
+        self.0
+    }
+    fn from_two_bytes(hi: u8, lo: u8) -> Option<Self> {
+        if hi > 1 || lo > 0x7F {
+            return None;
+        }
+        let value = u16::from(hi) * 128 + u16::from(lo);
+        if value > 200 {
+            return None;
+        }
+        Some(AudioLevel(value as u8))
+    }
+    fn to_two_bytes(self) -> [u8; 2] {
+        let v = u16::from(self.0);
+        [(v / 128) as u8, (v % 128) as u8]
+    }
+}
+
 /// Guitar/Bass mode (same enum as patch byte 0; reused for system Startup Mode).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -468,6 +515,9 @@ pub struct SystemArea {
     pub master_tune: Option<MasterTuneHz>,
     pub tuner_mute: Option<OnOff>,
     pub startup_mode: Option<Mode>,
+    pub player_level: Option<AudioLevel>,
+    pub usb_audio_in_level: Option<AudioLevel>,
+    pub usb_audio_out_level: Option<AudioLevel>,
 
     /// Every System-area byte not yet promoted to a typed field, keyed by its
     /// full 4-byte wire address. Preserves round-trip and surfaces unknowns to
@@ -535,6 +585,13 @@ impl SystemArea {
         out.master_tune = take(&mut bytes, ADDR_MASTER_TUNE).and_then(MasterTuneHz::from_byte);
         out.tuner_mute = take(&mut bytes, ADDR_TUNER_MUTE).and_then(OnOff::from_byte);
         out.startup_mode = take(&mut bytes, ADDR_STARTUP_MODE).and_then(Mode::from_byte);
+
+        out.player_level =
+            consume_audio_level(&mut bytes, ADDR_PLAYER_LEVEL_HI, ADDR_PLAYER_LEVEL_LO);
+        out.usb_audio_in_level =
+            consume_audio_level(&mut bytes, ADDR_USB_AUDIO_IN_HI, ADDR_USB_AUDIO_IN_LO);
+        out.usb_audio_out_level =
+            consume_audio_level(&mut bytes, ADDR_USB_AUDIO_OUT_HI, ADDR_USB_AUDIO_OUT_LO);
 
         out.unknown_bytes = bytes
             .into_iter()
@@ -642,6 +699,29 @@ impl SystemArea {
         if let Some(v) = self.startup_mode {
             bytes.insert(ADDR_STARTUP_MODE, v.to_byte());
         }
+        for (level, hi_addr, lo_addr) in [
+            (
+                self.player_level,
+                ADDR_PLAYER_LEVEL_HI,
+                ADDR_PLAYER_LEVEL_LO,
+            ),
+            (
+                self.usb_audio_in_level,
+                ADDR_USB_AUDIO_IN_HI,
+                ADDR_USB_AUDIO_IN_LO,
+            ),
+            (
+                self.usb_audio_out_level,
+                ADDR_USB_AUDIO_OUT_HI,
+                ADDR_USB_AUDIO_OUT_LO,
+            ),
+        ] {
+            if let Some(v) = level {
+                let [hi, lo] = v.to_two_bytes();
+                bytes.insert(hi_addr, hi);
+                bytes.insert(lo_addr, lo);
+            }
+        }
         for (k, b) in &self.unknown_bytes {
             let addr = parse_addr(k).ok_or_else(|| CodecError::BadStoredAddress(k.clone()))?;
             bytes.insert(addr, *b);
@@ -655,6 +735,22 @@ fn format_addr(addr: &[u8; 4]) -> String {
         "{:02X}:{:02X}:{:02X}:{:02X}",
         addr[0], addr[1], addr[2], addr[3]
     )
+}
+
+/// Pull both bytes of a 14-bit audio level out of the byte map iff both are
+/// present and the resulting value is in range; otherwise leave them in place
+/// so they fall through to `unknown_bytes` for lossless round-trip.
+fn consume_audio_level(
+    bytes: &mut BTreeMap<[u8; 4], u8>,
+    hi: [u8; 4],
+    lo: [u8; 4],
+) -> Option<AudioLevel> {
+    let hi_byte = *bytes.get(&hi)?;
+    let lo_byte = *bytes.get(&lo)?;
+    let level = AudioLevel::from_two_bytes(hi_byte, lo_byte)?;
+    bytes.remove(&hi);
+    bytes.remove(&lo);
+    Some(level)
 }
 
 fn parse_addr(s: &str) -> Option<[u8; 4]> {
@@ -739,11 +835,78 @@ mod tests {
             master_tune: Some(MasterTuneHz::new(442).unwrap()),
             tuner_mute: Some(OnOff::Off),
             startup_mode: Some(Mode::Bass),
+            player_level: Some(AudioLevel::new(100).unwrap()),
+            usb_audio_in_level: Some(AudioLevel::new(128).unwrap()),
+            usb_audio_out_level: Some(AudioLevel::new(200).unwrap()),
             unknown_bytes: BTreeMap::new(),
         };
         let frames = area.to_frames(0x10).unwrap();
         let back = SystemArea::from_frames(&frames);
         assert_eq!(back, area);
+    }
+
+    #[test]
+    fn audio_level_wire_bytes_match_floorboard() {
+        // FloorBoard customKnob.cpp:112-117: byte_hi = value/128, byte_lo = value%128.
+        for (val, hi, lo) in [
+            (0_u8, 0_u8, 0_u8),
+            (127, 0, 0x7F),
+            (128, 1, 0),
+            (200, 1, 0x48),
+        ] {
+            let level = AudioLevel::new(val).unwrap();
+            assert_eq!(level.to_two_bytes(), [hi, lo], "encode {val}");
+            assert_eq!(
+                AudioLevel::from_two_bytes(hi, lo),
+                Some(level),
+                "decode {hi:#x},{lo:#x}"
+            );
+        }
+    }
+
+    #[test]
+    fn audio_level_roundtrip_full_range() {
+        for v in 0..=200_u8 {
+            let level = AudioLevel::new(v).unwrap();
+            let area = SystemArea {
+                player_level: Some(level),
+                ..SystemArea::default()
+            };
+            let frames = area.to_frames(0x10).unwrap();
+            let back = SystemArea::from_frames(&frames);
+            assert_eq!(back.player_level, Some(level), "round-trip failed for {v}");
+            // Both bytes should be consumed -- nothing leaks to unknown_bytes.
+            assert!(
+                back.unknown_bytes.is_empty(),
+                "value {v} leaked: {:?}",
+                back.unknown_bytes
+            );
+        }
+        assert!(AudioLevel::new(201).is_none());
+    }
+
+    #[test]
+    fn audio_level_rejects_invalid_bytes() {
+        // hi byte > 1 is not a legal encoding.
+        assert!(AudioLevel::from_two_bytes(2, 0).is_none());
+        // hi byte high bit set (not a 7-bit data byte) is rejected.
+        assert!(AudioLevel::from_two_bytes(0x80, 0).is_none());
+        // hi=1, lo=0x49 would decode as 201 -- out of range.
+        assert!(AudioLevel::from_two_bytes(1, 0x49).is_none());
+    }
+
+    #[test]
+    fn audio_level_partial_bytes_fall_through_to_unknown() {
+        // If only the high byte is present in a dump (no low byte), the high byte
+        // must land in unknown_bytes rather than being silently dropped.
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: ADDR_PLAYER_LEVEL_HI,
+            data: std::borrow::Cow::Borrowed(&[0x01]),
+        }];
+        let area = SystemArea::from_frames(&frames);
+        assert_eq!(area.player_level, None);
+        assert_eq!(area.unknown_bytes.get("02:00:00:1B"), Some(&0x01));
     }
 
     #[test]
