@@ -1091,50 +1091,72 @@ impl Mode {
 /// `unknown_bytes` captures every address that landed in the dump but isn't
 /// yet modeled as a typed field — this keeps round-trip lossless before each
 /// field gets an enum or struct.
-/// One of the GR-55's 10 GK Pickup setups, each a self-contained pickup +
-/// per-string-level + routing configuration. Lives at sub-LSB `0x04 + index`
+/// One of the GR-55's 10 GK Pickup setups. Lives at sub-LSB `0x04 + index`
 /// of MSB `0x02`.
 ///
-/// midi.xml declares ~150 named parameters per setup (16-byte name then a
-/// mix of single-byte enums, signed numeric ranges, and 4-nibble multi-byte
-/// pairs). Until individual setup parameters get typed accessors,
-/// `raw_bytes` holds the wire bytes verbatim, keyed by the offset within the
-/// setup.
+/// Per-setup parameters lifted from `midi.xml:3641-…` under
+/// `<LSB value="04" name="GK setup 1">`. The 8-char name owns offsets
+/// `0x00..=0x07`; typed pickup-configuration fields cover `0x08..=0x0E`.
+/// Remaining bytes round-trip verbatim through `raw_bytes` until each gets
+/// promoted to its own typed accessor.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", default)]
 pub struct GkSetup {
-    /// Setup name (16 ASCII chars; spaces pad short names). Lifted from
-    /// midi.xml:3642 `<PARAM value="00" abbr="Name1">`; same shape as the
-    /// patch-name field.
+    /// Setup name. 8 ASCII chars (`abbr="Name1"`..`"Name8"` at offsets
+    /// `0x00..=0x07` per midi.xml:3642-4666).
     #[serde(default, skip_serializing_if = "GkSetupName::is_empty")]
     pub name: GkSetupName,
 
-    /// Every other byte of the setup, keyed by offset within `[0x00..=0x7F]`.
-    /// `name` consumes `0x00..=0x0F`; subsequent typed accessors will move
-    /// entries out of this map as they're added.
+    /// Hex Pickup model at offset `0x08`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hex_pu_type: Option<HexPuType>,
+    /// `Scale` parameter at offset `0x09` — raw byte; midi.xml describes it
+    /// as a `customdesc="Scale"` numeric range without enumerated names.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scale: Option<u8>,
+    /// `LSB` parameter at offset `0x0A` — raw byte; midi.xml leaves the
+    /// enum/range undocumented.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lsb: Option<u8>,
+    /// Hex Pickup phase at offset `0x0B`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pu_phase: Option<PuPhase>,
+    /// Hex Pickup direction at offset `0x0C`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pu_direction: Option<PuDirection>,
+    /// GK switch S1 / S2 position at offset `0x0D`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub s1_s2_position: Option<S1S2Position>,
+    /// Normal Pickup Gain at offset `0x0E` (-20..=+20 dB).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normal_pu_gain: Option<NormalPuGain>,
+
+    /// Every byte at offset `0x0F` or later that isn't yet typed. Round-trip
+    /// stays lossless even before each follow-up parameter gets promoted.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub raw_bytes: BTreeMap<u8, u8>,
 }
 
-/// Fixed-length 16-char ASCII name (printable range `0x20..=0x7E`). Used for
-/// GK setup names; the patch-name field has the same shape.
+/// Fixed-length 8-char ASCII name (printable range `0x20..=0x7E`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct GkSetupName(pub [u8; 16]);
+pub struct GkSetupName(pub [u8; 8]);
 
 impl Default for GkSetupName {
     fn default() -> Self {
-        GkSetupName([0x20; 16])
+        GkSetupName([0x20; 8])
     }
 }
 
 impl GkSetupName {
+    pub const LEN: usize = 8;
+
     /// True when every character is the space pad byte `0x20` (the default).
     pub fn is_empty(&self) -> bool {
         self.0.iter().all(|&b| b == 0x20)
     }
 
-    /// Return the name as a `String`, replacing non-ASCII bytes with `?`.
+    /// Return the name as a `String`, replacing non-printable bytes with `?`.
     pub fn as_string(&self) -> String {
         self.0
             .iter()
@@ -1146,6 +1168,174 @@ impl GkSetupName {
                 }
             })
             .collect()
+    }
+
+    /// Construct a name from an ASCII string, padding shorter inputs with
+    /// spaces and truncating longer ones. Returns `Err` if any character is
+    /// outside the printable-ASCII range `0x20..=0x7E`.
+    pub fn from_str(s: &str) -> Result<Self, GkSetupNameError> {
+        let mut out = [0x20_u8; 8];
+        for (i, ch) in s.chars().take(8).enumerate() {
+            let code = u32::from(ch);
+            if !(0x20..=0x7E).contains(&code) {
+                return Err(GkSetupNameError::NonPrintable {
+                    char_index: i,
+                    code,
+                });
+            }
+            out[i] = code as u8;
+        }
+        Ok(GkSetupName(out))
+    }
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum GkSetupNameError {
+    #[error("non-printable character at index {char_index}: codepoint {code:#x}")]
+    NonPrintable { char_index: usize, code: u32 },
+}
+
+/// Hex Pickup model — mined from midi.xml:4666-4673
+/// `<PARAM value="08" abbr="Guitar Mode" customdesc="Hex PU Type">`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HexPuType {
+    Gk3,
+    Gk2a,
+    PiezoFlat,
+    PiezoFishman,
+    PiezoGraphtech,
+    PiezoLrBaggs,
+    PiezoRmc,
+}
+
+impl HexPuType {
+    fn from_byte(b: u8) -> Option<Self> {
+        use HexPuType::*;
+        Some(match b {
+            0x00 => Gk3,
+            0x01 => Gk2a,
+            0x02 => PiezoFlat,
+            0x03 => PiezoFishman,
+            0x04 => PiezoGraphtech,
+            0x05 => PiezoLrBaggs,
+            0x06 => PiezoRmc,
+            _ => return None,
+        })
+    }
+    fn to_byte(self) -> u8 {
+        use HexPuType::*;
+        match self {
+            Gk3 => 0x00,
+            Gk2a => 0x01,
+            PiezoFlat => 0x02,
+            PiezoFishman => 0x03,
+            PiezoGraphtech => 0x04,
+            PiezoLrBaggs => 0x05,
+            PiezoRmc => 0x06,
+        }
+    }
+}
+
+/// Hex Pickup phase — midi.xml:4681 `customdesc="PU Phase"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PuPhase {
+    Normal,
+    Inverse,
+}
+
+impl PuPhase {
+    fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0 => Some(PuPhase::Normal),
+            1 => Some(PuPhase::Inverse),
+            _ => None,
+        }
+    }
+    fn to_byte(self) -> u8 {
+        match self {
+            PuPhase::Normal => 0,
+            PuPhase::Inverse => 1,
+        }
+    }
+}
+
+/// Hex Pickup direction — midi.xml:4685 `customdesc="PU Direction"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PuDirection {
+    Normal,
+    Reverse,
+}
+
+impl PuDirection {
+    fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0 => Some(PuDirection::Normal),
+            1 => Some(PuDirection::Reverse),
+            _ => None,
+        }
+    }
+    fn to_byte(self) -> u8 {
+        match self {
+            PuDirection::Normal => 0,
+            PuDirection::Reverse => 1,
+        }
+    }
+}
+
+/// GK switch S1 / S2 position — midi.xml:4689 `customdesc="S1/S2 Position"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum S1S2Position {
+    Normal,
+    Reverse,
+}
+
+impl S1S2Position {
+    fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0 => Some(S1S2Position::Normal),
+            1 => Some(S1S2Position::Reverse),
+            _ => None,
+        }
+    }
+    fn to_byte(self) -> u8 {
+        match self {
+            S1S2Position::Normal => 0,
+            S1S2Position::Reverse => 1,
+        }
+    }
+}
+
+/// Normal Pickup Gain in dB, range `-20..=+20`. Wire byte = `dB + 20`
+/// (midi.xml:4693-4734 — `<PARAM value="0E" customdesc="Normal PU Gain">`
+/// enumerates 41 values from `-20 dB` at byte `0x00` to `+20 dB` at `0x28`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct NormalPuGain(i8);
+
+impl NormalPuGain {
+    pub fn new(db: i8) -> Option<Self> {
+        if (-20..=20).contains(&db) {
+            Some(NormalPuGain(db))
+        } else {
+            None
+        }
+    }
+    pub fn db(self) -> i8 {
+        self.0
+    }
+    fn from_byte(b: u8) -> Option<Self> {
+        if b <= 40 {
+            Some(NormalPuGain((b as i8) - 20))
+        } else {
+            None
+        }
+    }
+    fn to_byte(self) -> u8 {
+        (self.0 + 20) as u8
     }
 }
 
@@ -1725,10 +1915,18 @@ impl SystemArea {
             for addr in setup_addrs {
                 if let Some(b) = bytes.remove(&addr) {
                     let offset = addr[3];
-                    if offset < 16 {
-                        setup.name.0[offset as usize] = b;
-                    } else {
-                        setup.raw_bytes.insert(offset, b);
+                    match offset {
+                        0x00..=0x07 => setup.name.0[offset as usize] = b,
+                        0x08 => setup.hex_pu_type = HexPuType::from_byte(b),
+                        0x09 => setup.scale = Some(b),
+                        0x0A => setup.lsb = Some(b),
+                        0x0B => setup.pu_phase = PuPhase::from_byte(b),
+                        0x0C => setup.pu_direction = PuDirection::from_byte(b),
+                        0x0D => setup.s1_s2_position = S1S2Position::from_byte(b),
+                        0x0E => setup.normal_pu_gain = NormalPuGain::from_byte(b),
+                        _ => {
+                            setup.raw_bytes.insert(offset, b);
+                        }
                     }
                 }
             }
@@ -2094,6 +2292,27 @@ impl SystemArea {
                 for (offset, b) in setup.name.0.iter().enumerate() {
                     bytes.insert([0x02, sub_lsb, 0x00, offset as u8], *b);
                 }
+            }
+            if let Some(v) = setup.hex_pu_type {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x08], v.to_byte());
+            }
+            if let Some(v) = setup.scale {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x09], v);
+            }
+            if let Some(v) = setup.lsb {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x0A], v);
+            }
+            if let Some(v) = setup.pu_phase {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x0B], v.to_byte());
+            }
+            if let Some(v) = setup.pu_direction {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x0C], v.to_byte());
+            }
+            if let Some(v) = setup.s1_s2_position {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x0D], v.to_byte());
+            }
+            if let Some(v) = setup.normal_pu_gain {
+                bytes.insert([0x02, sub_lsb, 0x00, 0x0E], v.to_byte());
             }
             for (offset, b) in &setup.raw_bytes {
                 bytes.insert([0x02, sub_lsb, 0x00, *offset], *b);
@@ -2692,16 +2911,63 @@ mod tests {
     }
 
     #[test]
+    fn gk_setup_name_from_str_round_trips_typed() {
+        let n = GkSetupName::from_str("Lead").unwrap();
+        assert_eq!(n.as_string(), "Lead    ");
+        let truncated = GkSetupName::from_str("0123456789").unwrap();
+        assert_eq!(truncated.as_string(), "01234567");
+        let bad = GkSetupName::from_str("hi\n").unwrap_err();
+        assert_eq!(
+            bad,
+            GkSetupNameError::NonPrintable {
+                char_index: 2,
+                code: 0x0A
+            }
+        );
+    }
+
+    #[test]
+    fn normal_pu_gain_roundtrips_full_range() {
+        for db in -20_i8..=20 {
+            let g = NormalPuGain::new(db).unwrap();
+            assert_eq!(g.db(), db);
+            assert_eq!(NormalPuGain::from_byte(g.to_byte()), Some(g));
+        }
+        assert!(NormalPuGain::new(-21).is_none());
+        assert!(NormalPuGain::new(21).is_none());
+        assert!(NormalPuGain::from_byte(41).is_none());
+    }
+
+    #[test]
+    fn hex_pu_type_byte_symmetry() {
+        for raw in 0x00_u8..=0x06 {
+            let v = HexPuType::from_byte(raw).expect("from_byte");
+            assert_eq!(v.to_byte(), raw);
+        }
+        assert!(HexPuType::from_byte(0x07).is_none());
+    }
+
+    #[test]
     fn gk_setup_decode_splits_name_and_raw_bytes() {
-        // Synthesize a system dump with one byte of patch state + GK setup 1
-        // and GK setup 3 partially populated. The decoder should route the
-        // first 16 bytes per setup to its `name` and the rest to `raw_bytes`.
+        // Synthesize a system dump with GK setup 1 (typed fields populated)
+        // and GK setup 3 (single raw byte). The decoder should route the
+        // first 8 bytes per setup to `name`, 0x08..=0x0E to typed accessors,
+        // and the rest to `raw_bytes`.
         let mut frames = Vec::new();
-        // GK setup 1 (sub-LSB 0x04): name "Test" then 0x20 padding, plus byte at 0x10.
+        // GK setup 1 (sub-LSB 0x04): "Test    " name (4 chars + 4 pad), then
+        // typed fields at 0x08..=0x0E, then raw bytes at 0x10/0x11.
         let mut payload = vec![b'T', b'e', b's', b't'];
-        payload.extend(std::iter::repeat(0x20).take(12)); // 16 chars total
-        payload.push(0x42); // raw at offset 0x10
-        payload.push(0x07); // raw at offset 0x11
+        payload.extend(std::iter::repeat(0x20).take(4)); // 8 chars total
+        payload.push(HexPuType::Gk3.to_byte()); // 0x08 hex_pu_type
+        payload.push(0x42); // 0x09 scale (raw)
+        payload.push(0x11); // 0x0A lsb (raw)
+        payload.push(PuPhase::Inverse.to_byte()); // 0x0B pu_phase
+        payload.push(PuDirection::Reverse.to_byte()); // 0x0C pu_direction
+        payload.push(S1S2Position::Reverse.to_byte()); // 0x0D s1_s2_position
+        payload.push(NormalPuGain::new(-5).unwrap().to_byte()); // 0x0E
+        payload.push(0xAA); // 0x0F raw byte
+        payload.push(0x42); // 0x10 raw byte
+        payload.push(0x07); // 0x11 raw byte
         frames.push(Frame::Dt1 {
             device_id: 0x10,
             address: [0x02, 0x04, 0x00, 0x00],
@@ -2718,6 +2984,14 @@ mod tests {
 
         let setup_1 = area.gk_setups[0].as_ref().expect("setup 1 should decode");
         assert_eq!(setup_1.name.as_string().trim(), "Test");
+        assert_eq!(setup_1.hex_pu_type, Some(HexPuType::Gk3));
+        assert_eq!(setup_1.scale, Some(0x42));
+        assert_eq!(setup_1.lsb, Some(0x11));
+        assert_eq!(setup_1.pu_phase, Some(PuPhase::Inverse));
+        assert_eq!(setup_1.pu_direction, Some(PuDirection::Reverse));
+        assert_eq!(setup_1.s1_s2_position, Some(S1S2Position::Reverse));
+        assert_eq!(setup_1.normal_pu_gain.unwrap().db(), -5);
+        assert_eq!(setup_1.raw_bytes.get(&0x0F), Some(&0xAA));
         assert_eq!(setup_1.raw_bytes.get(&0x10), Some(&0x42));
         assert_eq!(setup_1.raw_bytes.get(&0x11), Some(&0x07));
 
