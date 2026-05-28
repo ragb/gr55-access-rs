@@ -5,10 +5,19 @@
 //! USB Audio Out) whose 14-bit MSB-first encoding came out of FloorBoard's
 //! `customKnob.cpp:112-117`.
 //!
+//! Master menu's `patch_level` (MSB 0x02 page 0 offset 0x30, 14-bit) is also
+//! typed. The four stack-control discriminators on MSB 0x02 page 2 are typed
+//! (`ctl_pedal_function`, `exp_pedal_off_function`, `exp_pedal_on_function` —
+//! the EXP Pedal SWITCH discriminator at `[02, 02, 0x3B]` is still raw).
+//!
 //! Still on `unknown_bytes` until typed:
-//! - MSB `0x01` Current Patch bytes 1..18 (3-byte encoding TBD).
-//! - MSB `0x02` page 2 (CTL Pedal Function stack control).
-//! - Master menu page (`menuPage_master.cpp`).
+//! - MSB `0x02` page 2 sub-fields keyed by each function (e.g. the Hold-mode
+//!   parameters at `[02, 02, 0x01..0x0C]` when `ctl_pedal_function == Hold`).
+//! - Remaining Master-menu fields (V-LINK, Alternate Tuning, User Tuning
+//!   Shift, Master BPM at offset 0x3C, GK Set Select at 0x24, Guitar Out at
+//!   0x25).
+//! - GK setups 1..10 on MSB 0x02 sub-LSBs 0x04..0x0D (untyped, many hundreds
+//!   of parameters).
 //!
 //! Cross-references:
 //! - **Field list**: FloorBoard's `menuPage_system.cpp`. The `(hex1, hex2,
@@ -98,6 +107,21 @@ pub const ADDR_USB_AUDIO_IN_LO: [u8; 4] = [0x02, 0x00, 0x00, 0x1E];
 pub const ADDR_USB_AUDIO_OUT_HI: [u8; 4] = [0x02, 0x00, 0x00, 0x1F];
 /// Low byte of USB Audio Out Level.
 pub const ADDR_USB_AUDIO_OUT_LO: [u8; 4] = [0x02, 0x00, 0x00, 0x20];
+
+/// High byte of Patch Level (Master menu; 14-bit, 0..=200). Low byte at 0x31.
+pub const ADDR_PATCH_LEVEL_HI: [u8; 4] = [0x02, 0x00, 0x00, 0x30];
+/// Low byte of Patch Level.
+pub const ADDR_PATCH_LEVEL_LO: [u8; 4] = [0x02, 0x00, 0x00, 0x31];
+
+/// CTL Pedal Function selector (page 2). 22 enum values; chosen function
+/// determines which sub-fields at `[02, 02, 0x01..0x0C]` are active.
+pub const ADDR_CTL_PEDAL_FUNCTION: [u8; 4] = [0x02, 0x02, 0x00, 0x00];
+/// EXP Pedal Function selector while EXP Pedal Switch is OFF (page 2).
+/// 11 enum values; sub-fields at `[02, 02, 0x0E..0x23, 0x79, 0x7A]`.
+pub const ADDR_EXP_PEDAL_OFF_FUNCTION: [u8; 4] = [0x02, 0x02, 0x0D, 0x00];
+/// EXP Pedal Function selector while EXP Pedal Switch is ON (page 2).
+/// Same enum as `ADDR_EXP_PEDAL_OFF_FUNCTION`; sub-fields at `[02, 02, 0x25..0x3A, 0x7B, 0x7C]`.
+pub const ADDR_EXP_PEDAL_ON_FUNCTION: [u8; 4] = [0x02, 0x02, 0x24, 0x00];
 
 /// Reusable Off/On.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -467,6 +491,152 @@ impl AudioLevel {
     }
 }
 
+/// CTL Pedal Function — 22 actions assignable to the CTL footswitch.
+/// Mined from `midi.xml` `<PARAM value="00" customdesc="Function">` under
+/// `<LSB value="02" name="page 2">` on MSB `0x02`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CtlPedalFunction {
+    Off,
+    PatchSetting,
+    Hold,
+    TapTempo,
+    ToneSw,
+    AmpSw,
+    ModSw,
+    MfxSw,
+    DelaySw,
+    ReverbSw,
+    ChorusSw,
+    SoundStyleInc,
+    SoundStyleDec,
+    BankNumberInc,
+    BankNumberDec,
+    PatchNumberInc,
+    PatchNumberDec,
+    AudioPlayerPlayStop,
+    AudioPlayerSongInc,
+    AudioPlayerSongDec,
+    AudioPlayerSw,
+    VLinkSw,
+}
+
+impl CtlPedalFunction {
+    fn from_byte(b: u8) -> Option<Self> {
+        use CtlPedalFunction::*;
+        Some(match b {
+            0x00 => Off,
+            0x01 => PatchSetting,
+            0x02 => Hold,
+            0x03 => TapTempo,
+            0x04 => ToneSw,
+            0x05 => AmpSw,
+            0x06 => ModSw,
+            0x07 => MfxSw,
+            0x08 => DelaySw,
+            0x09 => ReverbSw,
+            0x0A => ChorusSw,
+            0x0B => SoundStyleInc,
+            0x0C => SoundStyleDec,
+            0x0D => BankNumberInc,
+            0x0E => BankNumberDec,
+            0x0F => PatchNumberInc,
+            0x10 => PatchNumberDec,
+            0x11 => AudioPlayerPlayStop,
+            0x12 => AudioPlayerSongInc,
+            0x13 => AudioPlayerSongDec,
+            0x14 => AudioPlayerSw,
+            0x15 => VLinkSw,
+            _ => return None,
+        })
+    }
+    fn to_byte(self) -> u8 {
+        use CtlPedalFunction::*;
+        match self {
+            Off => 0x00,
+            PatchSetting => 0x01,
+            Hold => 0x02,
+            TapTempo => 0x03,
+            ToneSw => 0x04,
+            AmpSw => 0x05,
+            ModSw => 0x06,
+            MfxSw => 0x07,
+            DelaySw => 0x08,
+            ReverbSw => 0x09,
+            ChorusSw => 0x0A,
+            SoundStyleInc => 0x0B,
+            SoundStyleDec => 0x0C,
+            BankNumberInc => 0x0D,
+            BankNumberDec => 0x0E,
+            PatchNumberInc => 0x0F,
+            PatchNumberDec => 0x10,
+            AudioPlayerPlayStop => 0x11,
+            AudioPlayerSongInc => 0x12,
+            AudioPlayerSongDec => 0x13,
+            AudioPlayerSw => 0x14,
+            VLinkSw => 0x15,
+        }
+    }
+}
+
+/// EXP Pedal Function — 11 actions assignable to the EXP pedal in either
+/// EXP-Switch-OFF (`[02, 02, 0x0D]`) or EXP-Switch-ON (`[02, 02, 0x24]`)
+/// state. Mined from `midi.xml` `<PARAM value="0D" customdesc="Function">`.
+/// (FloorBoard's XML shows two entries for `Modulation` — values `0x05` and
+/// `0x0A` — which appears intentional; preserving as `Modulation` and
+/// `ModControl` to make the variants distinct in Rust.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExpPedalFunction {
+    Off,
+    PatchSetting,
+    PatchVolume,
+    ToneVolume,
+    PitchBend,
+    Modulation,
+    CrossFader,
+    DelayLevel,
+    ReverbLevel,
+    ChorusLevel,
+    ModControl,
+}
+
+impl ExpPedalFunction {
+    fn from_byte(b: u8) -> Option<Self> {
+        use ExpPedalFunction::*;
+        Some(match b {
+            0x00 => Off,
+            0x01 => PatchSetting,
+            0x02 => PatchVolume,
+            0x03 => ToneVolume,
+            0x04 => PitchBend,
+            0x05 => Modulation,
+            0x06 => CrossFader,
+            0x07 => DelayLevel,
+            0x08 => ReverbLevel,
+            0x09 => ChorusLevel,
+            0x0A => ModControl,
+            _ => return None,
+        })
+    }
+    fn to_byte(self) -> u8 {
+        use ExpPedalFunction::*;
+        match self {
+            Off => 0x00,
+            PatchSetting => 0x01,
+            PatchVolume => 0x02,
+            ToneVolume => 0x03,
+            PitchBend => 0x04,
+            Modulation => 0x05,
+            CrossFader => 0x06,
+            DelayLevel => 0x07,
+            ReverbLevel => 0x08,
+            ChorusLevel => 0x09,
+            ModControl => 0x0A,
+        }
+    }
+}
+
 /// Guitar/Bass mode (same enum as patch byte 0; reused for system Startup Mode).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -561,6 +731,19 @@ pub struct SystemArea {
     pub usb_audio_in_level: Option<AudioLevel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usb_audio_out_level: Option<AudioLevel>,
+    /// Master "Patch Level" knob — 14-bit, range 0..=200, same encoding as the
+    /// USB / Player audio levels.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_level: Option<AudioLevel>,
+    /// CTL footswitch function assignment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_pedal_function: Option<CtlPedalFunction>,
+    /// EXP Pedal function when the EXP Pedal Switch is OFF.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_pedal_off_function: Option<ExpPedalFunction>,
+    /// EXP Pedal function when the EXP Pedal Switch is ON.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_pedal_on_function: Option<ExpPedalFunction>,
 
     /// Every System-area byte not yet promoted to a typed field, keyed by its
     /// full 4-byte wire address. Preserves round-trip and surfaces unknowns to
@@ -636,6 +819,13 @@ impl SystemArea {
             consume_audio_level(&mut bytes, ADDR_USB_AUDIO_IN_HI, ADDR_USB_AUDIO_IN_LO);
         out.usb_audio_out_level =
             consume_audio_level(&mut bytes, ADDR_USB_AUDIO_OUT_HI, ADDR_USB_AUDIO_OUT_LO);
+        out.patch_level = consume_audio_level(&mut bytes, ADDR_PATCH_LEVEL_HI, ADDR_PATCH_LEVEL_LO);
+        out.ctl_pedal_function =
+            take(&mut bytes, ADDR_CTL_PEDAL_FUNCTION).and_then(CtlPedalFunction::from_byte);
+        out.exp_pedal_off_function =
+            take(&mut bytes, ADDR_EXP_PEDAL_OFF_FUNCTION).and_then(ExpPedalFunction::from_byte);
+        out.exp_pedal_on_function =
+            take(&mut bytes, ADDR_EXP_PEDAL_ON_FUNCTION).and_then(ExpPedalFunction::from_byte);
 
         out.unknown_bytes = bytes
             .into_iter()
@@ -761,12 +951,22 @@ impl SystemArea {
                 ADDR_USB_AUDIO_OUT_HI,
                 ADDR_USB_AUDIO_OUT_LO,
             ),
+            (self.patch_level, ADDR_PATCH_LEVEL_HI, ADDR_PATCH_LEVEL_LO),
         ] {
             if let Some(v) = level {
                 let [hi, lo] = v.to_two_bytes();
                 bytes.insert(hi_addr, hi);
                 bytes.insert(lo_addr, lo);
             }
+        }
+        if let Some(v) = self.ctl_pedal_function {
+            bytes.insert(ADDR_CTL_PEDAL_FUNCTION, v.to_byte());
+        }
+        if let Some(v) = self.exp_pedal_off_function {
+            bytes.insert(ADDR_EXP_PEDAL_OFF_FUNCTION, v.to_byte());
+        }
+        if let Some(v) = self.exp_pedal_on_function {
+            bytes.insert(ADDR_EXP_PEDAL_ON_FUNCTION, v.to_byte());
         }
         for (k, b) in &self.unknown_bytes {
             let addr = parse_addr(k).ok_or_else(|| CodecError::BadStoredAddress(k.clone()))?;
@@ -904,6 +1104,10 @@ mod tests {
             player_level: Some(AudioLevel::new(100).unwrap()),
             usb_audio_in_level: Some(AudioLevel::new(128).unwrap()),
             usb_audio_out_level: Some(AudioLevel::new(200).unwrap()),
+            patch_level: Some(AudioLevel::new(75).unwrap()),
+            ctl_pedal_function: Some(CtlPedalFunction::TapTempo),
+            exp_pedal_off_function: Some(ExpPedalFunction::PatchVolume),
+            exp_pedal_on_function: Some(ExpPedalFunction::Modulation),
             unknown_bytes: BTreeMap::new(),
         };
         let frames = area.to_frames(0x10).unwrap();
@@ -1107,6 +1311,42 @@ mod tests {
                 assert_eq!(back.current_patch, Some(slot), "{slot}");
             }
         }
+    }
+
+    #[test]
+    fn ctl_pedal_function_byte_symmetry() {
+        // All 22 values 0x00..=0x15 must round-trip through to_byte/from_byte
+        // and survive a SystemArea encode/decode cycle.
+        for raw in 0x00_u8..=0x15 {
+            let v = CtlPedalFunction::from_byte(raw).expect("from_byte");
+            assert_eq!(v.to_byte(), raw, "to_byte mismatch for 0x{raw:02X}");
+            let area = SystemArea {
+                ctl_pedal_function: Some(v),
+                ..SystemArea::default()
+            };
+            let frames = area.to_frames(0x10).unwrap();
+            let back = SystemArea::from_frames(&frames);
+            assert_eq!(back.ctl_pedal_function, Some(v));
+        }
+        assert!(CtlPedalFunction::from_byte(0x16).is_none());
+    }
+
+    #[test]
+    fn exp_pedal_function_byte_symmetry() {
+        for raw in 0x00_u8..=0x0A {
+            let v = ExpPedalFunction::from_byte(raw).expect("from_byte");
+            assert_eq!(v.to_byte(), raw, "to_byte mismatch for 0x{raw:02X}");
+            let area = SystemArea {
+                exp_pedal_off_function: Some(v),
+                exp_pedal_on_function: Some(v),
+                ..SystemArea::default()
+            };
+            let frames = area.to_frames(0x10).unwrap();
+            let back = SystemArea::from_frames(&frames);
+            assert_eq!(back.exp_pedal_off_function, Some(v));
+            assert_eq!(back.exp_pedal_on_function, Some(v));
+        }
+        assert!(ExpPedalFunction::from_byte(0x0B).is_none());
     }
 
     #[test]
