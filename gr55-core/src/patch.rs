@@ -314,6 +314,74 @@ impl CrossFaderMode {
     }
 }
 
+/// Patch EXP pedal switch function (page `0x00` offset `0x4E`).
+///
+/// 14 variants. A strict subset of [`CtlFunction`] — it omits `Hold` and
+/// the two LED behaviours, and a strict subset of System
+/// `ExpPedalSwitchFunction` — it omits `PatchSetting`, the four navigation
+/// variants (Sound Style / Bank Number / Patch Number Inc/Dec). Mined from
+/// FloorBoard `midi.xml:38953-38968`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExpSwFunction {
+    Off,
+    TapTempo,
+    ToneSw,
+    AmpSw,
+    ModSw,
+    MfxSw,
+    DelaySw,
+    ReverbSw,
+    ChorusSw,
+    AudioPlayerPlayStop,
+    AudioPlayerSongInc,
+    AudioPlayerSongDec,
+    AudioPlayerSw,
+    VLinkSw,
+}
+
+impl ExpSwFunction {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use ExpSwFunction::*;
+        Some(match b {
+            0x00 => Off,
+            0x01 => TapTempo,
+            0x02 => ToneSw,
+            0x03 => AmpSw,
+            0x04 => ModSw,
+            0x05 => MfxSw,
+            0x06 => DelaySw,
+            0x07 => ReverbSw,
+            0x08 => ChorusSw,
+            0x09 => AudioPlayerPlayStop,
+            0x0A => AudioPlayerSongInc,
+            0x0B => AudioPlayerSongDec,
+            0x0C => AudioPlayerSw,
+            0x0D => VLinkSw,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use ExpSwFunction::*;
+        match self {
+            Off => 0x00,
+            TapTempo => 0x01,
+            ToneSw => 0x02,
+            AmpSw => 0x03,
+            ModSw => 0x04,
+            MfxSw => 0x05,
+            DelaySw => 0x06,
+            ReverbSw => 0x07,
+            ChorusSw => 0x08,
+            AudioPlayerPlayStop => 0x09,
+            AudioPlayerSongInc => 0x0A,
+            AudioPlayerSongDec => 0x0B,
+            AudioPlayerSw => 0x0C,
+            VLinkSw => 0x0D,
+        }
+    }
+}
+
 /// Typed view of a single GR-55 patch payload. MSB-agnostic — the caller
 /// supplies the base MSB when decoding or encoding.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -487,6 +555,40 @@ pub struct PatchArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exp_on_chorus_max: Option<u8>,
 
+    // ---- EXP SW block (page 0x00 offsets 0x4D..=0x5A) ----
+    // Offsets 0x4F..=0x52 are FloorBoard placeholders with no PARAM body —
+    // they fall through to unknown_bytes.
+    /// EXP SW Status at `0x4D`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_status: Option<OnOff>,
+    /// EXP SW Function at `0x4E` (14 variants, no Hold).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_function: Option<ExpSwFunction>,
+    /// EXP SW Tone Sw OFF: PCM 1 at `0x53`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_off_pcm_1: Option<OnOff>,
+    /// EXP SW Tone Sw OFF: PCM 2 at `0x54`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_off_pcm_2: Option<OnOff>,
+    /// EXP SW Tone Sw OFF: Modeling at `0x55`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_off_modeling: Option<OnOff>,
+    /// EXP SW Tone Sw OFF: Normal PU at `0x56`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_off_normal_pu: Option<OnOff>,
+    /// EXP SW Tone Sw ON: PCM 1 at `0x57`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_on_pcm_1: Option<OnOff>,
+    /// EXP SW Tone Sw ON: PCM 2 at `0x58`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_on_pcm_2: Option<OnOff>,
+    /// EXP SW Tone Sw ON: Modeling at `0x59`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_on_modeling: Option<OnOff>,
+    /// EXP SW Tone Sw ON: Normal PU at `0x5A`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_on_normal_pu: Option<OnOff>,
+
     /// Everything inside the patch payload that the typed model doesn't yet
     /// cover. Keys are formatted `"PP:HH:LL"` — page byte, then the two
     /// in-page offset bytes.
@@ -611,6 +713,16 @@ impl PatchArea {
             (0x00, 0x00, 0x4A) if b <= 100 => self.exp_on_reverb_max = Some(b),
             (0x00, 0x00, 0x4B) if b <= 100 => self.exp_on_chorus_min = Some(b),
             (0x00, 0x00, 0x4C) if b <= 100 => self.exp_on_chorus_max = Some(b),
+            (0x00, 0x00, 0x4D) => self.exp_sw_status = OnOff::from_byte(b),
+            (0x00, 0x00, 0x4E) => self.exp_sw_function = ExpSwFunction::from_byte(b),
+            (0x00, 0x00, 0x53) => self.exp_sw_tone_sw_off_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x54) => self.exp_sw_tone_sw_off_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x55) => self.exp_sw_tone_sw_off_modeling = OnOff::from_byte(b),
+            (0x00, 0x00, 0x56) => self.exp_sw_tone_sw_off_normal_pu = OnOff::from_byte(b),
+            (0x00, 0x00, 0x57) => self.exp_sw_tone_sw_on_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x58) => self.exp_sw_tone_sw_on_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x59) => self.exp_sw_tone_sw_on_modeling = OnOff::from_byte(b),
+            (0x00, 0x00, 0x5A) => self.exp_sw_tone_sw_on_normal_pu = OnOff::from_byte(b),
             _ => {
                 self.unknown_bytes.insert(format_key(page, hi, lo), b);
             }
@@ -809,6 +921,37 @@ impl PatchArea {
         }
         if let Some(v) = self.exp_on_chorus_max {
             bytes.insert([base_msb, 0x00, 0x00, 0x4C], v);
+        }
+        // EXP SW block
+        if let Some(v) = self.exp_sw_status {
+            bytes.insert([base_msb, 0x00, 0x00, 0x4D], v.to_byte());
+        }
+        if let Some(v) = self.exp_sw_function {
+            bytes.insert([base_msb, 0x00, 0x00, 0x4E], v.to_byte());
+        }
+        if let Some(v) = self.exp_sw_tone_sw_off_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x53], v.to_byte());
+        }
+        if let Some(v) = self.exp_sw_tone_sw_off_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x54], v.to_byte());
+        }
+        if let Some(v) = self.exp_sw_tone_sw_off_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x55], v.to_byte());
+        }
+        if let Some(v) = self.exp_sw_tone_sw_off_normal_pu {
+            bytes.insert([base_msb, 0x00, 0x00, 0x56], v.to_byte());
+        }
+        if let Some(v) = self.exp_sw_tone_sw_on_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x57], v.to_byte());
+        }
+        if let Some(v) = self.exp_sw_tone_sw_on_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x58], v.to_byte());
+        }
+        if let Some(v) = self.exp_sw_tone_sw_on_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x59], v.to_byte());
+        }
+        if let Some(v) = self.exp_sw_tone_sw_on_normal_pu {
+            bytes.insert([base_msb, 0x00, 0x00, 0x5A], v.to_byte());
         }
         for (k, b) in &self.unknown_bytes {
             let (page, hi, lo) =
@@ -1051,6 +1194,58 @@ mod tests {
 
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
+    }
+
+    #[test]
+    fn exp_sw_block_decodes_and_round_trips() {
+        // Cover 0x4D..=0x5A. Offsets 0x4F..=0x52 are FloorBoard placeholders
+        // — supply a byte at one of them and assert it falls through to
+        // unknown_bytes rather than getting absorbed.
+        let payload: Vec<u8> = vec![
+            OnOff::On.to_byte(),                 // 0x4D status
+            ExpSwFunction::DelaySw.to_byte(),    // 0x4E function
+            0xAA,                                // 0x4F placeholder
+            0xBB,                                // 0x50 placeholder
+            0xCC,                                // 0x51 placeholder
+            0xDD,                                // 0x52 placeholder
+            OnOff::Off.to_byte(),                // 0x53 off_pcm_1
+            OnOff::On.to_byte(),                 // 0x54 off_pcm_2
+            OnOff::Off.to_byte(),                // 0x55 off_modeling
+            OnOff::On.to_byte(),                 // 0x56 off_normal_pu
+            OnOff::On.to_byte(),                 // 0x57 on_pcm_1
+            OnOff::Off.to_byte(),                // 0x58 on_pcm_2
+            OnOff::On.to_byte(),                 // 0x59 on_modeling
+            OnOff::Off.to_byte(),                // 0x5A on_normal_pu
+        ];
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x00, 0x00, 0x4D],
+            data: Cow::Owned(payload),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+        assert_eq!(area.exp_sw_status, Some(OnOff::On));
+        assert_eq!(area.exp_sw_function, Some(ExpSwFunction::DelaySw));
+        assert_eq!(area.exp_sw_tone_sw_off_pcm_2, Some(OnOff::On));
+        assert_eq!(area.exp_sw_tone_sw_off_normal_pu, Some(OnOff::On));
+        assert_eq!(area.exp_sw_tone_sw_on_pcm_1, Some(OnOff::On));
+        assert_eq!(area.exp_sw_tone_sw_on_normal_pu, Some(OnOff::Off));
+        // The 4 placeholder bytes survived round-trip via unknown_bytes.
+        assert_eq!(area.unknown_bytes.get("00:00:4F"), Some(&0xAA));
+        assert_eq!(area.unknown_bytes.get("00:00:50"), Some(&0xBB));
+        assert_eq!(area.unknown_bytes.get("00:00:51"), Some(&0xCC));
+        assert_eq!(area.unknown_bytes.get("00:00:52"), Some(&0xDD));
+
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
+    }
+
+    #[test]
+    fn exp_sw_function_byte_symmetry() {
+        for raw in 0x00_u8..=0x0D {
+            let v = ExpSwFunction::from_byte(raw).expect("from_byte");
+            assert_eq!(v.to_byte(), raw, "mismatch for 0x{raw:02X}");
+        }
+        assert!(ExpSwFunction::from_byte(0x0E).is_none());
     }
 
     #[test]
