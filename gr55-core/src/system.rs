@@ -191,6 +191,32 @@ pub const ADDR_CTL_TONE_SW_ON_MODELING: [u8; 4] = [0x02, 0x02, 0x0B, 0x00];
 /// CTL Tone-Sw ON-action Normal PU.
 pub const ADDR_CTL_TONE_SW_ON_NORMAL_PU: [u8; 4] = [0x02, 0x02, 0x0C, 0x00];
 
+// EXP Pedal OFF sub-fields (active when exp_pedal_off_function selects them).
+pub const ADDR_EXP_OFF_TONE_VOL_PCM_1: [u8; 4] = [0x02, 0x02, 0x0E, 0x00];
+pub const ADDR_EXP_OFF_TONE_VOL_PCM_2: [u8; 4] = [0x02, 0x02, 0x0F, 0x00];
+pub const ADDR_EXP_OFF_TONE_VOL_MODELING: [u8; 4] = [0x02, 0x02, 0x10, 0x00];
+pub const ADDR_EXP_OFF_TONE_VOL_NORMAL_PU: [u8; 4] = [0x02, 0x02, 0x11, 0x00];
+pub const ADDR_EXP_OFF_PITCH_BEND_DEPTH: [u8; 4] = [0x02, 0x02, 0x12, 0x00];
+pub const ADDR_EXP_OFF_PITCH_BEND_PCM_1: [u8; 4] = [0x02, 0x02, 0x13, 0x00];
+pub const ADDR_EXP_OFF_PITCH_BEND_PCM_2: [u8; 4] = [0x02, 0x02, 0x14, 0x00];
+pub const ADDR_EXP_OFF_PITCH_BEND_MODELING: [u8; 4] = [0x02, 0x02, 0x15, 0x00];
+pub const ADDR_EXP_OFF_MOD_MIN: [u8; 4] = [0x02, 0x02, 0x16, 0x00];
+pub const ADDR_EXP_OFF_MOD_MAX: [u8; 4] = [0x02, 0x02, 0x17, 0x00];
+pub const ADDR_EXP_OFF_MOD_PCM_1: [u8; 4] = [0x02, 0x02, 0x18, 0x00];
+pub const ADDR_EXP_OFF_MOD_PCM_2: [u8; 4] = [0x02, 0x02, 0x19, 0x00];
+pub const ADDR_EXP_OFF_CROSS_FADER_A: [u8; 4] = [0x02, 0x02, 0x1A, 0x00];
+pub const ADDR_EXP_OFF_CROSS_FADER_B: [u8; 4] = [0x02, 0x02, 0x1B, 0x00];
+pub const ADDR_EXP_OFF_CROSS_FADER_C: [u8; 4] = [0x02, 0x02, 0x1C, 0x00];
+pub const ADDR_EXP_OFF_CROSS_FADER_D: [u8; 4] = [0x02, 0x02, 0x1D, 0x00];
+pub const ADDR_EXP_OFF_DELAY_MIN: [u8; 4] = [0x02, 0x02, 0x1E, 0x00];
+pub const ADDR_EXP_OFF_DELAY_MAX: [u8; 4] = [0x02, 0x02, 0x1F, 0x00];
+pub const ADDR_EXP_OFF_REVERB_MIN: [u8; 4] = [0x02, 0x02, 0x20, 0x00];
+pub const ADDR_EXP_OFF_REVERB_MAX: [u8; 4] = [0x02, 0x02, 0x21, 0x00];
+pub const ADDR_EXP_OFF_CHORUS_MIN: [u8; 4] = [0x02, 0x02, 0x22, 0x00];
+pub const ADDR_EXP_OFF_CHORUS_MAX: [u8; 4] = [0x02, 0x02, 0x23, 0x00];
+pub const ADDR_EXP_OFF_MOD_CONTROL_A: [u8; 4] = [0x02, 0x02, 0x79, 0x00];
+pub const ADDR_EXP_OFF_MOD_CONTROL_B: [u8; 4] = [0x02, 0x02, 0x7A, 0x00];
+
 /// CTL Pedal Function selector (page 2). 22 enum values; chosen function
 /// determines which sub-fields at `[02, 02, 0x01..0x0C]` are active.
 pub const ADDR_CTL_PEDAL_FUNCTION: [u8; 4] = [0x02, 0x02, 0x00, 0x00];
@@ -819,6 +845,35 @@ impl ExpPedalSwitchFunction {
     }
 }
 
+/// Pitch Bend depth in semitones, range `-12..=+12`. Wire encoding offsets
+/// by 24 (byte `0x18` = 0). Used for EXP-OFF and EXP-ON Pitch Bend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PitchBendDepth(i8);
+
+impl PitchBendDepth {
+    pub fn new(semitones: i8) -> Option<Self> {
+        if (-12..=12).contains(&semitones) {
+            Some(PitchBendDepth(semitones))
+        } else {
+            None
+        }
+    }
+    pub fn get(self) -> i8 {
+        self.0
+    }
+    fn from_byte(b: u8) -> Option<Self> {
+        if (0x0C..=0x24).contains(&b) {
+            Some(PitchBendDepth((b as i8) - 24))
+        } else {
+            None
+        }
+    }
+    fn to_byte(self) -> u8 {
+        (self.0 + 24) as u8
+    }
+}
+
 /// CTL Pedal Hold Type — 4 latch / momentary variants.
 /// Mined from midi.xml:3087-3092 `<PARAM value="01" customdesc="Hold Type">`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1107,6 +1162,56 @@ pub struct SystemArea {
     #[serde(skip_serializing_if = "user_tuning_shift_all_none", default)]
     pub user_tuning_shift_strings: [Option<u8>; 6],
 
+    // ---- EXP Pedal (Switch OFF) page 2 sub-parameters ----
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_tone_vol_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_tone_vol_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_tone_vol_modeling: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_tone_vol_normal_pu: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_pitch_bend_depth: Option<PitchBendDepth>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_pitch_bend_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_pitch_bend_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_pitch_bend_modeling: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_mod_min: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_mod_max: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_mod_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_mod_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_cross_fader_a: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_cross_fader_b: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_cross_fader_c: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_cross_fader_d: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_delay_min: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_delay_max: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_reverb_min: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_reverb_max: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_chorus_min: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_chorus_max: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_mod_control_a: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_off_mod_control_b: Option<u8>,
+
     /// Every System-area byte not yet promoted to a typed field, keyed by its
     /// full 4-byte wire address. Preserves round-trip and surfaces unknowns to
     /// callers (e.g. `gr55 show` can list them).
@@ -1223,6 +1328,39 @@ impl SystemArea {
             take(&mut bytes, ADDR_CTL_TONE_SW_ON_MODELING).and_then(OnOff::from_byte);
         out.ctl_tone_sw_on_normal_pu =
             take(&mut bytes, ADDR_CTL_TONE_SW_ON_NORMAL_PU).and_then(OnOff::from_byte);
+
+        out.exp_off_tone_vol_pcm_1 =
+            take(&mut bytes, ADDR_EXP_OFF_TONE_VOL_PCM_1).and_then(OnOff::from_byte);
+        out.exp_off_tone_vol_pcm_2 =
+            take(&mut bytes, ADDR_EXP_OFF_TONE_VOL_PCM_2).and_then(OnOff::from_byte);
+        out.exp_off_tone_vol_modeling =
+            take(&mut bytes, ADDR_EXP_OFF_TONE_VOL_MODELING).and_then(OnOff::from_byte);
+        out.exp_off_tone_vol_normal_pu =
+            take(&mut bytes, ADDR_EXP_OFF_TONE_VOL_NORMAL_PU).and_then(OnOff::from_byte);
+        out.exp_off_pitch_bend_depth =
+            take(&mut bytes, ADDR_EXP_OFF_PITCH_BEND_DEPTH).and_then(PitchBendDepth::from_byte);
+        out.exp_off_pitch_bend_pcm_1 =
+            take(&mut bytes, ADDR_EXP_OFF_PITCH_BEND_PCM_1).and_then(OnOff::from_byte);
+        out.exp_off_pitch_bend_pcm_2 =
+            take(&mut bytes, ADDR_EXP_OFF_PITCH_BEND_PCM_2).and_then(OnOff::from_byte);
+        out.exp_off_pitch_bend_modeling =
+            take(&mut bytes, ADDR_EXP_OFF_PITCH_BEND_MODELING).and_then(OnOff::from_byte);
+        out.exp_off_mod_min = take(&mut bytes, ADDR_EXP_OFF_MOD_MIN);
+        out.exp_off_mod_max = take(&mut bytes, ADDR_EXP_OFF_MOD_MAX);
+        out.exp_off_mod_pcm_1 = take(&mut bytes, ADDR_EXP_OFF_MOD_PCM_1).and_then(OnOff::from_byte);
+        out.exp_off_mod_pcm_2 = take(&mut bytes, ADDR_EXP_OFF_MOD_PCM_2).and_then(OnOff::from_byte);
+        out.exp_off_cross_fader_a = take(&mut bytes, ADDR_EXP_OFF_CROSS_FADER_A);
+        out.exp_off_cross_fader_b = take(&mut bytes, ADDR_EXP_OFF_CROSS_FADER_B);
+        out.exp_off_cross_fader_c = take(&mut bytes, ADDR_EXP_OFF_CROSS_FADER_C);
+        out.exp_off_cross_fader_d = take(&mut bytes, ADDR_EXP_OFF_CROSS_FADER_D);
+        out.exp_off_delay_min = take(&mut bytes, ADDR_EXP_OFF_DELAY_MIN);
+        out.exp_off_delay_max = take(&mut bytes, ADDR_EXP_OFF_DELAY_MAX);
+        out.exp_off_reverb_min = take(&mut bytes, ADDR_EXP_OFF_REVERB_MIN);
+        out.exp_off_reverb_max = take(&mut bytes, ADDR_EXP_OFF_REVERB_MAX);
+        out.exp_off_chorus_min = take(&mut bytes, ADDR_EXP_OFF_CHORUS_MIN);
+        out.exp_off_chorus_max = take(&mut bytes, ADDR_EXP_OFF_CHORUS_MAX);
+        out.exp_off_mod_control_a = take(&mut bytes, ADDR_EXP_OFF_MOD_CONTROL_A);
+        out.exp_off_mod_control_b = take(&mut bytes, ADDR_EXP_OFF_MOD_CONTROL_B);
 
         out.gk_set_select = take(&mut bytes, ADDR_GK_SET_SELECT);
         out.guitar_out = take(&mut bytes, ADDR_GUITAR_OUT);
@@ -1411,9 +1549,50 @@ impl SystemArea {
             (ADDR_CTL_TONE_SW_ON_PCM_2, self.ctl_tone_sw_on_pcm_2),
             (ADDR_CTL_TONE_SW_ON_MODELING, self.ctl_tone_sw_on_modeling),
             (ADDR_CTL_TONE_SW_ON_NORMAL_PU, self.ctl_tone_sw_on_normal_pu),
+            (ADDR_EXP_OFF_TONE_VOL_PCM_1, self.exp_off_tone_vol_pcm_1),
+            (ADDR_EXP_OFF_TONE_VOL_PCM_2, self.exp_off_tone_vol_pcm_2),
+            (
+                ADDR_EXP_OFF_TONE_VOL_MODELING,
+                self.exp_off_tone_vol_modeling,
+            ),
+            (
+                ADDR_EXP_OFF_TONE_VOL_NORMAL_PU,
+                self.exp_off_tone_vol_normal_pu,
+            ),
+            (ADDR_EXP_OFF_PITCH_BEND_PCM_1, self.exp_off_pitch_bend_pcm_1),
+            (ADDR_EXP_OFF_PITCH_BEND_PCM_2, self.exp_off_pitch_bend_pcm_2),
+            (
+                ADDR_EXP_OFF_PITCH_BEND_MODELING,
+                self.exp_off_pitch_bend_modeling,
+            ),
+            (ADDR_EXP_OFF_MOD_PCM_1, self.exp_off_mod_pcm_1),
+            (ADDR_EXP_OFF_MOD_PCM_2, self.exp_off_mod_pcm_2),
         ] {
             if let Some(v) = value {
                 bytes.insert(addr, v.to_byte());
+            }
+        }
+        if let Some(v) = self.exp_off_pitch_bend_depth {
+            bytes.insert(ADDR_EXP_OFF_PITCH_BEND_DEPTH, v.to_byte());
+        }
+        for (addr, value) in [
+            (ADDR_EXP_OFF_MOD_MIN, self.exp_off_mod_min),
+            (ADDR_EXP_OFF_MOD_MAX, self.exp_off_mod_max),
+            (ADDR_EXP_OFF_CROSS_FADER_A, self.exp_off_cross_fader_a),
+            (ADDR_EXP_OFF_CROSS_FADER_B, self.exp_off_cross_fader_b),
+            (ADDR_EXP_OFF_CROSS_FADER_C, self.exp_off_cross_fader_c),
+            (ADDR_EXP_OFF_CROSS_FADER_D, self.exp_off_cross_fader_d),
+            (ADDR_EXP_OFF_DELAY_MIN, self.exp_off_delay_min),
+            (ADDR_EXP_OFF_DELAY_MAX, self.exp_off_delay_max),
+            (ADDR_EXP_OFF_REVERB_MIN, self.exp_off_reverb_min),
+            (ADDR_EXP_OFF_REVERB_MAX, self.exp_off_reverb_max),
+            (ADDR_EXP_OFF_CHORUS_MIN, self.exp_off_chorus_min),
+            (ADDR_EXP_OFF_CHORUS_MAX, self.exp_off_chorus_max),
+            (ADDR_EXP_OFF_MOD_CONTROL_A, self.exp_off_mod_control_a),
+            (ADDR_EXP_OFF_MOD_CONTROL_B, self.exp_off_mod_control_b),
+        ] {
+            if let Some(v) = value {
+                bytes.insert(addr, v);
             }
         }
         if let Some(v) = self.gk_set_select {
@@ -1630,6 +1809,30 @@ mod tests {
             ctl_tone_sw_on_pcm_2: Some(OnOff::On),
             ctl_tone_sw_on_modeling: Some(OnOff::Off),
             ctl_tone_sw_on_normal_pu: Some(OnOff::On),
+            exp_off_tone_vol_pcm_1: Some(OnOff::On),
+            exp_off_tone_vol_pcm_2: Some(OnOff::Off),
+            exp_off_tone_vol_modeling: Some(OnOff::On),
+            exp_off_tone_vol_normal_pu: Some(OnOff::Off),
+            exp_off_pitch_bend_depth: Some(PitchBendDepth::new(-7).unwrap()),
+            exp_off_pitch_bend_pcm_1: Some(OnOff::On),
+            exp_off_pitch_bend_pcm_2: Some(OnOff::Off),
+            exp_off_pitch_bend_modeling: Some(OnOff::On),
+            exp_off_mod_min: Some(0x10),
+            exp_off_mod_max: Some(0x70),
+            exp_off_mod_pcm_1: Some(OnOff::On),
+            exp_off_mod_pcm_2: Some(OnOff::Off),
+            exp_off_cross_fader_a: Some(0x20),
+            exp_off_cross_fader_b: Some(0x30),
+            exp_off_cross_fader_c: Some(0x40),
+            exp_off_cross_fader_d: Some(0x50),
+            exp_off_delay_min: Some(0x10),
+            exp_off_delay_max: Some(0x60),
+            exp_off_reverb_min: Some(0x20),
+            exp_off_reverb_max: Some(0x70),
+            exp_off_chorus_min: Some(0x10),
+            exp_off_chorus_max: Some(0x50),
+            exp_off_mod_control_a: Some(0x40),
+            exp_off_mod_control_b: Some(0x60),
             unknown_bytes: BTreeMap::new(),
         };
         let frames = area.to_frames(0x10).unwrap();
