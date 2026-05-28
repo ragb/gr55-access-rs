@@ -1,0 +1,34 @@
+[workspace]
+resolver = "2"
+members = ["gr55-core", "gr55", "gr55-wasm"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/ragb/gr55-access-rs"
+rust-version = "1.75"
+
+[workspace.dependencies]
+gr55-core = { path = "gr55-core", version = "0.1.0" }
+
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+schemars = "0.8"
+tsify-next = { version = "0.5", features = ["js"] }
+thiserror = "1"
+anyhow = "1"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+midir = "0.10"
+log = "0.4"
+env_logger = "0.11"
+
+# wasm
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

@@ -1,0 +1,22 @@
+* text=auto eol=lf
+
+*.rs       text eol=lf
+*.toml     text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.json     text eol=lf
+*.md       text eol=lf
+*.xml      text eol=lf
+*.xsd      text eol=lf
+*.py       text eol=lf
+LICENSE    text eol=lf
+NOTICE     text eol=lf
+
+*.syx      binary
+*.g5l      binary
+*.pdf      binary
+*.zip      binary
+*.ico      binary
+*.icns     binary
+*.png      binary
+*.mid      binary

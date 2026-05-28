@@ -1,0 +1,18 @@
+[package]
+name = "gr55"
+description = "CLI for editing, dumping, and syncing Roland GR-55 patches over MIDI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gr55-core = { workspace = true, features = ["schema"] }
+clap = { workspace = true }
+midir = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }

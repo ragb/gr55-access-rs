@@ -1,0 +1,21 @@
+[package]
+name = "gr55-wasm"
+description = "wasm-bindgen surface over gr55-core for JS/TS consumers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gr55-core = { workspace = true, features = ["tsify"] }
+wasm-bindgen = { workspace = true }
+serde-wasm-bindgen = { workspace = true }
+tsify-next = { workspace = true }
+serde = { workspace = true }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

@@ -1,0 +1,22 @@
+[package]
+name = "gr55-core"
+description = "Pure no-IO codec for Roland GR-55 SysEx messages and patch data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+[features]
+default = []
+schema = ["dep:schemars"]
+tsify = ["dep:tsify-next", "dep:wasm-bindgen"]
+
+[dependencies]
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+schemars = { workspace = true, optional = true }
+tsify-next = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }

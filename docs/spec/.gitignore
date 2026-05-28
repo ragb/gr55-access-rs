@@ -1,0 +1,6 @@
+# Large research artifacts — kept locally, not committed.
+# The relevant data is vendored under gr55-core/data/ and gr55-core/tests/fixtures/.
+
+gr55floorboard_source_code.zip
+floorboard_src/
+gr55_owners_manual.pdf

@@ -1,0 +1,14 @@
+target/
+pkg/
+.venv/
+__pycache__/
+*.pyc
+
+# scratch files
+*_commit_msg.txt
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
