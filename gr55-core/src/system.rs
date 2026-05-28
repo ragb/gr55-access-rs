@@ -3206,11 +3206,11 @@ mod tests {
             address: [0x02, 0x04, 0x00, 0x00],
             data: std::borrow::Cow::Owned(payload),
         });
-        // GK setup 3 (sub-LSB 0x06): just one byte at offset 0x20 (raw region).
+        // GK setup 3 (sub-LSB 0x06): just one byte at offset 0x40 (still raw).
         // Offsets land in address[3] per the page-0 frame convention.
         frames.push(Frame::Dt1 {
             device_id: 0x10,
-            address: [0x02, 0x06, 0x00, 0x20],
+            address: [0x02, 0x06, 0x00, 0x40],
             data: std::borrow::Cow::Owned(vec![0x55]),
         });
         let area = SystemArea::from_frames(&frames);
@@ -3244,7 +3244,7 @@ mod tests {
         let setup_3 = area.gk_setups[2].as_ref().expect("setup 3 should decode");
         // Only a single byte landed in raw_bytes; name stayed at the default pad.
         assert!(setup_3.name.is_empty());
-        assert_eq!(setup_3.raw_bytes.get(&0x20), Some(&0x55));
+        assert_eq!(setup_3.raw_bytes.get(&0x40), Some(&0x55));
 
         // Round-trip: re-encode the area and verify the bytes survive.
         let back = SystemArea::from_frames(&area.to_frames(0x10).unwrap());
