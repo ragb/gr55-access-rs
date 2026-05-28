@@ -5,19 +5,18 @@
 //! USB Audio Out) whose 14-bit MSB-first encoding came out of FloorBoard's
 //! `customKnob.cpp:112-117`.
 //!
-//! Master menu's `patch_level` (MSB 0x02 page 0 offset 0x30, 14-bit) is also
-//! typed. The four stack-control discriminators on MSB 0x02 page 2 are typed
-//! (`ctl_pedal_function`, `exp_pedal_off_function`, `exp_pedal_on_function` —
-//! the EXP Pedal SWITCH discriminator at `[02, 02, 0x3B]` is still raw).
+//! Coverage of MSB `0x02` page 0 (System + Master menus) is now complete.
+//! The four stack-control discriminators on page 2 (`ctl_pedal_function`,
+//! `exp_pedal_off_function`, `exp_pedal_on_function`,
+//! `exp_pedal_switch_function`) are all typed.
 //!
 //! Still on `unknown_bytes` until typed:
 //! - MSB `0x02` page 2 sub-fields keyed by each function (e.g. the Hold-mode
 //!   parameters at `[02, 02, 0x01..0x0C]` when `ctl_pedal_function == Hold`).
-//! - Remaining Master-menu fields (V-LINK, Alternate Tuning, User Tuning
-//!   Shift, Master BPM at offset 0x3C, GK Set Select at 0x24, Guitar Out at
-//!   0x25).
-//! - GK setups 1..10 on MSB 0x02 sub-LSBs 0x04..0x0D (untyped, many hundreds
-//!   of parameters).
+//!   These are 100+ raw bytes that would need per-discriminator sum-type
+//!   modeling to make ergonomic; round-trip remains lossless.
+//! - GK setups 1..=10 on MSB `0x02` sub-LSBs `0x04..0x0D` (each is a few
+//!   hundred parameters; untyped).
 //!
 //! Cross-references:
 //! - **Field list**: FloorBoard's `menuPage_system.cpp`. The `(hex1, hex2,
@@ -123,6 +122,48 @@ pub const ADDR_PATCH_LEVEL_LO: [u8; 4] = [0x02, 0x00, 0x00, 0x31];
 pub const ADDR_MASTER_BPM_HI: [u8; 4] = [0x02, 0x00, 0x00, 0x3C];
 /// Low nibble of Master BPM.
 pub const ADDR_MASTER_BPM_LO: [u8; 4] = [0x02, 0x00, 0x00, 0x3D];
+
+// Master menu remaining single-byte parameters (mined from menuPage_master.cpp).
+// midi.xml's `<LSB value="00" name="page 1">` only documents PARAMs up to
+// offset 0x26, so the enums for 0x24 / 0x25 / 0x35 aren't formally listed —
+// the bytes round-trip raw via Option<u8>.
+
+/// GK Set Select (Master menu). Likely reuses the same 10-entry enum as
+/// `gk_set` at offset `0x00`, but FloorBoard's addressing routes it through
+/// `addComboBox(... "02", "00", "24")` without an enum hookup in `midi.xml`.
+/// Stored raw.
+pub const ADDR_GK_SET_SELECT: [u8; 4] = [0x02, 0x00, 0x00, 0x24];
+/// Master Guitar Out — distinct from `guitar_out_source` at offset 0x16.
+pub const ADDR_GUITAR_OUT: [u8; 4] = [0x02, 0x00, 0x00, 0x25];
+/// V-LINK Palette.
+pub const ADDR_VLINK_PALETTE: [u8; 4] = [0x02, 0x00, 0x00, 0x26];
+/// V-LINK Clip.
+pub const ADDR_VLINK_CLIP: [u8; 4] = [0x02, 0x00, 0x00, 0x27];
+/// V-LINK Note Clip Change.
+pub const ADDR_VLINK_NOTE_CLIP_CHANGE: [u8; 4] = [0x02, 0x00, 0x00, 0x28];
+/// V-LINK EXP (pedal).
+pub const ADDR_VLINK_EXP: [u8; 4] = [0x02, 0x00, 0x00, 0x29];
+/// V-LINK EXP ON.
+pub const ADDR_VLINK_EXP_ON: [u8; 4] = [0x02, 0x00, 0x00, 0x2A];
+/// V-LINK GK VOL.
+pub const ADDR_VLINK_GK_VOL: [u8; 4] = [0x02, 0x00, 0x00, 0x2B];
+/// Alternate Tuning enable switch.
+pub const ADDR_ALT_TUNING_SW: [u8; 4] = [0x02, 0x00, 0x00, 0x34];
+/// Alternate Tuning Type.
+pub const ADDR_ALT_TUNING_TYPE: [u8; 4] = [0x02, 0x00, 0x00, 0x35];
+/// User Tuning Shift, strings 1..=6.
+pub const ADDR_USER_TUNING_SHIFT_STRINGS: [[u8; 4]; 6] = [
+    [0x02, 0x00, 0x00, 0x36],
+    [0x02, 0x00, 0x00, 0x37],
+    [0x02, 0x00, 0x00, 0x38],
+    [0x02, 0x00, 0x00, 0x39],
+    [0x02, 0x00, 0x00, 0x3A],
+    [0x02, 0x00, 0x00, 0x3B],
+];
+
+/// EXP Pedal SWITCH Function selector (page 2, 4th and final discriminator).
+/// 21 enum values; sub-fields at `[02, 02, 0x3C..0x78]`.
+pub const ADDR_EXP_PEDAL_SWITCH_FUNCTION: [u8; 4] = [0x02, 0x02, 0x3B, 0x00];
 
 /// CTL Pedal Function selector (page 2). 22 enum values; chosen function
 /// determines which sub-fields at `[02, 02, 0x01..0x0C]` are active.
@@ -665,6 +706,93 @@ impl ExpPedalFunction {
     }
 }
 
+/// EXP Pedal SWITCH Function — 21 actions assignable to the EXP pedal's
+/// onboard switch (separate from the EXP pedal sweep). Mined from
+/// `midi.xml:3329` `<PARAM value="3B" abbr="EXP SW" customdesc="Function">`.
+/// Differs from `CtlPedalFunction` only in that there's no `Hold` action
+/// (a momentary footswitch can't hold).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExpPedalSwitchFunction {
+    Off,
+    PatchSetting,
+    TapTempo,
+    ToneSw,
+    AmpSw,
+    ModSw,
+    MfxSw,
+    DelaySw,
+    ReverbSw,
+    ChorusSw,
+    SoundStyleInc,
+    SoundStyleDec,
+    BankNumberInc,
+    BankNumberDec,
+    PatchNumberInc,
+    PatchNumberDec,
+    AudioPlayerPlayStop,
+    AudioPlayerSongInc,
+    AudioPlayerSongDec,
+    AudioPlayerSw,
+    VLinkSw,
+}
+
+impl ExpPedalSwitchFunction {
+    fn from_byte(b: u8) -> Option<Self> {
+        use ExpPedalSwitchFunction::*;
+        Some(match b {
+            0x00 => Off,
+            0x01 => PatchSetting,
+            0x02 => TapTempo,
+            0x03 => ToneSw,
+            0x04 => AmpSw,
+            0x05 => ModSw,
+            0x06 => MfxSw,
+            0x07 => DelaySw,
+            0x08 => ReverbSw,
+            0x09 => ChorusSw,
+            0x0A => SoundStyleInc,
+            0x0B => SoundStyleDec,
+            0x0C => BankNumberInc,
+            0x0D => BankNumberDec,
+            0x0E => PatchNumberInc,
+            0x0F => PatchNumberDec,
+            0x10 => AudioPlayerPlayStop,
+            0x11 => AudioPlayerSongInc,
+            0x12 => AudioPlayerSongDec,
+            0x13 => AudioPlayerSw,
+            0x14 => VLinkSw,
+            _ => return None,
+        })
+    }
+    fn to_byte(self) -> u8 {
+        use ExpPedalSwitchFunction::*;
+        match self {
+            Off => 0x00,
+            PatchSetting => 0x01,
+            TapTempo => 0x02,
+            ToneSw => 0x03,
+            AmpSw => 0x04,
+            ModSw => 0x05,
+            MfxSw => 0x06,
+            DelaySw => 0x07,
+            ReverbSw => 0x08,
+            ChorusSw => 0x09,
+            SoundStyleInc => 0x0A,
+            SoundStyleDec => 0x0B,
+            BankNumberInc => 0x0C,
+            BankNumberDec => 0x0D,
+            PatchNumberInc => 0x0E,
+            PatchNumberDec => 0x0F,
+            AudioPlayerPlayStop => 0x10,
+            AudioPlayerSongInc => 0x11,
+            AudioPlayerSongDec => 0x12,
+            AudioPlayerSw => 0x13,
+            VLinkSw => 0x14,
+        }
+    }
+}
+
 /// Master Patch Level (0..=200). Wire encoding is 4-nibble (NOT the 14-bit
 /// scheme used by the Player / USB audio levels): the high nibble of the
 /// value lands at `[02, 00, 0x30]` and the low nibble at `[02, 00, 0x31]`.
@@ -840,6 +968,36 @@ pub struct SystemArea {
     /// EXP Pedal function when the EXP Pedal Switch is ON.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exp_pedal_on_function: Option<ExpPedalFunction>,
+    /// Action bound to the EXP pedal's onboard switch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_pedal_switch_function: Option<ExpPedalSwitchFunction>,
+
+    // ---- Master menu remainder (single-byte values; enums not in midi.xml) ----
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_set_select: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guitar_out: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_link_palette: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_link_clip: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_link_note_clip_change: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_link_exp: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_link_exp_on: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_link_gk_vol: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alt_tuning_sw: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alt_tuning_type: Option<u8>,
+    /// User Tuning Shift, one byte per string (index 0 = string 1).
+    /// Roland devices typically encode this as a signed offset; the exact
+    /// byte ranges aren't documented in `midi.xml`, so stored raw.
+    #[serde(skip_serializing_if = "user_tuning_shift_all_none", default)]
+    pub user_tuning_shift_strings: [Option<u8>; 6],
 
     /// Every System-area byte not yet promoted to a typed field, keyed by its
     /// full 4-byte wire address. Preserves round-trip and surfaces unknowns to
@@ -933,6 +1091,22 @@ impl SystemArea {
             take(&mut bytes, ADDR_EXP_PEDAL_OFF_FUNCTION).and_then(ExpPedalFunction::from_byte);
         out.exp_pedal_on_function =
             take(&mut bytes, ADDR_EXP_PEDAL_ON_FUNCTION).and_then(ExpPedalFunction::from_byte);
+        out.exp_pedal_switch_function = take(&mut bytes, ADDR_EXP_PEDAL_SWITCH_FUNCTION)
+            .and_then(ExpPedalSwitchFunction::from_byte);
+
+        out.gk_set_select = take(&mut bytes, ADDR_GK_SET_SELECT);
+        out.guitar_out = take(&mut bytes, ADDR_GUITAR_OUT);
+        out.v_link_palette = take(&mut bytes, ADDR_VLINK_PALETTE);
+        out.v_link_clip = take(&mut bytes, ADDR_VLINK_CLIP);
+        out.v_link_note_clip_change = take(&mut bytes, ADDR_VLINK_NOTE_CLIP_CHANGE);
+        out.v_link_exp = take(&mut bytes, ADDR_VLINK_EXP);
+        out.v_link_exp_on = take(&mut bytes, ADDR_VLINK_EXP_ON);
+        out.v_link_gk_vol = take(&mut bytes, ADDR_VLINK_GK_VOL);
+        out.alt_tuning_sw = take(&mut bytes, ADDR_ALT_TUNING_SW).and_then(OnOff::from_byte);
+        out.alt_tuning_type = take(&mut bytes, ADDR_ALT_TUNING_TYPE);
+        for (i, addr) in ADDR_USER_TUNING_SHIFT_STRINGS.iter().enumerate() {
+            out.user_tuning_shift_strings[i] = take(&mut bytes, *addr);
+        }
 
         out.unknown_bytes = bytes
             .into_iter()
@@ -1084,6 +1258,38 @@ impl SystemArea {
         if let Some(v) = self.exp_pedal_on_function {
             bytes.insert(ADDR_EXP_PEDAL_ON_FUNCTION, v.to_byte());
         }
+        if let Some(v) = self.exp_pedal_switch_function {
+            bytes.insert(ADDR_EXP_PEDAL_SWITCH_FUNCTION, v.to_byte());
+        }
+        if let Some(v) = self.gk_set_select {
+            bytes.insert(ADDR_GK_SET_SELECT, v);
+        }
+        if let Some(v) = self.guitar_out {
+            bytes.insert(ADDR_GUITAR_OUT, v);
+        }
+        for (addr, value) in [
+            (ADDR_VLINK_PALETTE, self.v_link_palette),
+            (ADDR_VLINK_CLIP, self.v_link_clip),
+            (ADDR_VLINK_NOTE_CLIP_CHANGE, self.v_link_note_clip_change),
+            (ADDR_VLINK_EXP, self.v_link_exp),
+            (ADDR_VLINK_EXP_ON, self.v_link_exp_on),
+            (ADDR_VLINK_GK_VOL, self.v_link_gk_vol),
+        ] {
+            if let Some(v) = value {
+                bytes.insert(addr, v);
+            }
+        }
+        if let Some(v) = self.alt_tuning_sw {
+            bytes.insert(ADDR_ALT_TUNING_SW, v.to_byte());
+        }
+        if let Some(v) = self.alt_tuning_type {
+            bytes.insert(ADDR_ALT_TUNING_TYPE, v);
+        }
+        for (i, addr) in ADDR_USER_TUNING_SHIFT_STRINGS.iter().enumerate() {
+            if let Some(v) = self.user_tuning_shift_strings[i] {
+                bytes.insert(*addr, v);
+            }
+        }
         for (k, b) in &self.unknown_bytes {
             let addr = parse_addr(k).ok_or_else(|| CodecError::BadStoredAddress(k.clone()))?;
             bytes.insert(addr, *b);
@@ -1113,6 +1319,10 @@ fn consume_audio_level(
     bytes.remove(&hi);
     bytes.remove(&lo);
     Some(level)
+}
+
+fn user_tuning_shift_all_none(arr: &[Option<u8>; 6]) -> bool {
+    arr.iter().all(Option::is_none)
 }
 
 /// Generic two-byte consumer: only takes both bytes if both are present
@@ -1241,6 +1451,18 @@ mod tests {
             ctl_pedal_function: Some(CtlPedalFunction::TapTempo),
             exp_pedal_off_function: Some(ExpPedalFunction::PatchVolume),
             exp_pedal_on_function: Some(ExpPedalFunction::Modulation),
+            exp_pedal_switch_function: Some(ExpPedalSwitchFunction::VLinkSw),
+            gk_set_select: Some(3),
+            guitar_out: Some(2),
+            v_link_palette: Some(5),
+            v_link_clip: Some(6),
+            v_link_note_clip_change: Some(7),
+            v_link_exp: Some(8),
+            v_link_exp_on: Some(9),
+            v_link_gk_vol: Some(10),
+            alt_tuning_sw: Some(OnOff::On),
+            alt_tuning_type: Some(4),
+            user_tuning_shift_strings: [Some(64), Some(65), Some(66), Some(67), Some(68), Some(69)],
             unknown_bytes: BTreeMap::new(),
         };
         let frames = area.to_frames(0x10).unwrap();
@@ -1553,6 +1775,22 @@ mod tests {
             assert_eq!(back.ctl_pedal_function, Some(v));
         }
         assert!(CtlPedalFunction::from_byte(0x16).is_none());
+    }
+
+    #[test]
+    fn exp_pedal_switch_function_byte_symmetry() {
+        for raw in 0x00_u8..=0x14 {
+            let v = ExpPedalSwitchFunction::from_byte(raw).expect("from_byte");
+            assert_eq!(v.to_byte(), raw, "to_byte mismatch for 0x{raw:02X}");
+            let area = SystemArea {
+                exp_pedal_switch_function: Some(v),
+                ..SystemArea::default()
+            };
+            let frames = area.to_frames(0x10).unwrap();
+            let back = SystemArea::from_frames(&frames);
+            assert_eq!(back.exp_pedal_switch_function, Some(v));
+        }
+        assert!(ExpPedalSwitchFunction::from_byte(0x15).is_none());
     }
 
     #[test]
