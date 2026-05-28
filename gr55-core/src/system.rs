@@ -1169,11 +1169,14 @@ impl GkSetupName {
             })
             .collect()
     }
+}
 
-    /// Construct a name from an ASCII string, padding shorter inputs with
-    /// spaces and truncating longer ones. Returns `Err` if any character is
-    /// outside the printable-ASCII range `0x20..=0x7E`.
-    pub fn from_str(s: &str) -> Result<Self, GkSetupNameError> {
+impl std::str::FromStr for GkSetupName {
+    type Err = GkSetupNameError;
+
+    /// Pad shorter inputs with spaces, truncate longer ones. Returns `Err`
+    /// for any character outside printable ASCII `0x20..=0x7E`.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut out = [0x20_u8; 8];
         for (i, ch) in s.chars().take(8).enumerate() {
             let code = u32::from(ch);
@@ -2912,6 +2915,7 @@ mod tests {
 
     #[test]
     fn gk_setup_name_from_str_round_trips_typed() {
+        use std::str::FromStr;
         let n = GkSetupName::from_str("Lead").unwrap();
         assert_eq!(n.as_string(), "Lead    ");
         let truncated = GkSetupName::from_str("0123456789").unwrap();
