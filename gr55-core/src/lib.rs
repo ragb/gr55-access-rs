@@ -3,10 +3,12 @@
 pub mod address;
 pub mod codec;
 pub mod midi_map;
+pub mod patch;
 pub mod sysex;
 pub mod system;
 
 pub use address::{AddressSpace, PatchSlot, PatchSlotError};
+pub use patch::{PatchArea, PatchMode, PatchName};
 pub use system::SystemArea;
 
 pub use codec::CodecError;
