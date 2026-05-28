@@ -45,7 +45,7 @@ use thiserror::Error;
 
 use crate::codec::CodecError;
 use crate::sysex::Frame;
-use crate::system::{HoldType, OnOff, SwitchMode};
+use crate::system::{HoldType, OnOff, PitchBendDepth, SwitchMode};
 
 /// 16-char patch name (ASCII 0x20..=0x7D, the printable subset FloorBoard
 /// allows). Stored as raw bytes so that round-trip preserves any byte the
@@ -227,6 +227,93 @@ impl CtlFunction {
     }
 }
 
+/// Patch EXP pedal function (page `0x00` offset `0x1F`).
+///
+/// 10 variants, mined from FloorBoard `midi.xml:38759-38770`. Differs from
+/// the System-area `ExpPedalFunction` (which has 11 variants) by omitting
+/// the `PatchSetting` option at byte 0x01 — at the patch level a "patch
+/// setting" assignment would be self-referential. All other variants are
+/// shifted down by one byte relative to the System enum:
+///   patch 0x01 PatchVolume   == system 0x02 PatchVolume
+///   patch 0x09 ModControl    == system 0x0A ModControl
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExpFunction {
+    Off,
+    PatchVolume,
+    ToneVolume,
+    PitchBend,
+    Modulation,
+    CrossFader,
+    DelayLevel,
+    ReverbLevel,
+    ChorusLevel,
+    ModControl,
+}
+
+impl ExpFunction {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use ExpFunction::*;
+        Some(match b {
+            0x00 => Off,
+            0x01 => PatchVolume,
+            0x02 => ToneVolume,
+            0x03 => PitchBend,
+            0x04 => Modulation,
+            0x05 => CrossFader,
+            0x06 => DelayLevel,
+            0x07 => ReverbLevel,
+            0x08 => ChorusLevel,
+            0x09 => ModControl,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use ExpFunction::*;
+        match self {
+            Off => 0x00,
+            PatchVolume => 0x01,
+            ToneVolume => 0x02,
+            PitchBend => 0x03,
+            Modulation => 0x04,
+            CrossFader => 0x05,
+            DelayLevel => 0x06,
+            ReverbLevel => 0x07,
+            ChorusLevel => 0x08,
+            ModControl => 0x09,
+        }
+    }
+}
+
+/// Direction an EXP pedal's cross-fader assignment sweeps. Per-output:
+/// PCM 1 / PCM 2 / Modeling / Normal PU each get their own setting at
+/// `0x2C..=0x2F`. Mined from FloorBoard `midi.xml:38818-38835`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CrossFaderMode {
+    Off,
+    Toe,
+    Heel,
+}
+
+impl CrossFaderMode {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Off),
+            0x01 => Some(Self::Toe),
+            0x02 => Some(Self::Heel),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::Off => 0x00,
+            Self::Toe => 0x01,
+            Self::Heel => 0x02,
+        }
+    }
+}
+
 /// Typed view of a single GR-55 patch payload. MSB-agnostic — the caller
 /// supplies the base MSB when decoding or encoding.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -279,6 +366,77 @@ pub struct PatchArea {
     /// CTL Tone Sw ON: Normal PU at `0x1E`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ctl_tone_sw_on_normal_pu: Option<OnOff>,
+
+    // ---- EXP pedal block (page 0x00 offsets 0x1F..=0x35) ----
+    /// EXP Function at `0x1F`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_function: Option<ExpFunction>,
+    /// EXP Tone Volume: PCM 1 at `0x20`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_tone_vol_pcm_1: Option<OnOff>,
+    /// EXP Tone Volume: PCM 2 at `0x21`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_tone_vol_pcm_2: Option<OnOff>,
+    /// EXP Tone Volume: Modeling at `0x22`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_tone_vol_modeling: Option<OnOff>,
+    /// EXP Tone Volume: Normal PU at `0x23`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_tone_vol_normal_pu: Option<OnOff>,
+    /// EXP Pitch Bend Depth at `0x24` (-12..=+12 semitones).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_pitch_bend_depth: Option<PitchBendDepth>,
+    /// EXP Pitch Bend: PCM 1 at `0x25`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_pitch_bend_pcm_1: Option<OnOff>,
+    /// EXP Pitch Bend: PCM 2 at `0x26`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_pitch_bend_pcm_2: Option<OnOff>,
+    /// EXP Pitch Bend: Modeling at `0x27`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_pitch_bend_modeling: Option<OnOff>,
+    /// EXP Modulation MIN at `0x28` (raw 0..=127, display 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_mod_min: Option<u8>,
+    /// EXP Modulation MAX at `0x29`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_mod_max: Option<u8>,
+    /// EXP Modulation: PCM 1 at `0x2A`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_mod_pcm_1: Option<OnOff>,
+    /// EXP Modulation: PCM 2 at `0x2B`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_mod_pcm_2: Option<OnOff>,
+    /// EXP Cross Fader: PCM 1 at `0x2C` (Off / Toe / Heel).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_cross_fader_pcm_1: Option<CrossFaderMode>,
+    /// EXP Cross Fader: PCM 2 at `0x2D`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_cross_fader_pcm_2: Option<CrossFaderMode>,
+    /// EXP Cross Fader: Modeling at `0x2E`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_cross_fader_modeling: Option<CrossFaderMode>,
+    /// EXP Cross Fader: Normal PU at `0x2F`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_cross_fader_normal_pu: Option<CrossFaderMode>,
+    /// EXP Delay Level MIN at `0x30` (raw 0..=120).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_delay_min: Option<u8>,
+    /// EXP Delay Level MAX at `0x31`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_delay_max: Option<u8>,
+    /// EXP Reverb Level MIN at `0x32` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_reverb_min: Option<u8>,
+    /// EXP Reverb Level MAX at `0x33`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_reverb_max: Option<u8>,
+    /// EXP Chorus Level MIN at `0x34` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_chorus_min: Option<u8>,
+    /// EXP Chorus Level MAX at `0x35`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_chorus_max: Option<u8>,
 
     /// Everything inside the patch payload that the typed model doesn't yet
     /// cover. Keys are formatted `"PP:HH:LL"` — page byte, then the two
@@ -358,6 +516,29 @@ impl PatchArea {
             (0x00, 0x00, 0x1C) => self.ctl_tone_sw_on_pcm_2 = OnOff::from_byte(b),
             (0x00, 0x00, 0x1D) => self.ctl_tone_sw_on_modeling = OnOff::from_byte(b),
             (0x00, 0x00, 0x1E) => self.ctl_tone_sw_on_normal_pu = OnOff::from_byte(b),
+            (0x00, 0x00, 0x1F) => self.exp_function = ExpFunction::from_byte(b),
+            (0x00, 0x00, 0x20) => self.exp_tone_vol_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x21) => self.exp_tone_vol_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x22) => self.exp_tone_vol_modeling = OnOff::from_byte(b),
+            (0x00, 0x00, 0x23) => self.exp_tone_vol_normal_pu = OnOff::from_byte(b),
+            (0x00, 0x00, 0x24) => self.exp_pitch_bend_depth = PitchBendDepth::from_byte(b),
+            (0x00, 0x00, 0x25) => self.exp_pitch_bend_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x26) => self.exp_pitch_bend_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x27) => self.exp_pitch_bend_modeling = OnOff::from_byte(b),
+            (0x00, 0x00, 0x28) if b <= 127 => self.exp_mod_min = Some(b),
+            (0x00, 0x00, 0x29) if b <= 127 => self.exp_mod_max = Some(b),
+            (0x00, 0x00, 0x2A) => self.exp_mod_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x2B) => self.exp_mod_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x2C) => self.exp_cross_fader_pcm_1 = CrossFaderMode::from_byte(b),
+            (0x00, 0x00, 0x2D) => self.exp_cross_fader_pcm_2 = CrossFaderMode::from_byte(b),
+            (0x00, 0x00, 0x2E) => self.exp_cross_fader_modeling = CrossFaderMode::from_byte(b),
+            (0x00, 0x00, 0x2F) => self.exp_cross_fader_normal_pu = CrossFaderMode::from_byte(b),
+            (0x00, 0x00, 0x30) if b <= 120 => self.exp_delay_min = Some(b),
+            (0x00, 0x00, 0x31) if b <= 120 => self.exp_delay_max = Some(b),
+            (0x00, 0x00, 0x32) if b <= 100 => self.exp_reverb_min = Some(b),
+            (0x00, 0x00, 0x33) if b <= 100 => self.exp_reverb_max = Some(b),
+            (0x00, 0x00, 0x34) if b <= 100 => self.exp_chorus_min = Some(b),
+            (0x00, 0x00, 0x35) if b <= 100 => self.exp_chorus_max = Some(b),
             _ => {
                 self.unknown_bytes.insert(format_key(page, hi, lo), b);
             }
@@ -416,6 +597,76 @@ impl PatchArea {
         }
         if let Some(v) = self.ctl_tone_sw_on_normal_pu {
             bytes.insert([base_msb, 0x00, 0x00, 0x1E], v.to_byte());
+        }
+        // EXP block
+        if let Some(v) = self.exp_function {
+            bytes.insert([base_msb, 0x00, 0x00, 0x1F], v.to_byte());
+        }
+        if let Some(v) = self.exp_tone_vol_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x20], v.to_byte());
+        }
+        if let Some(v) = self.exp_tone_vol_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x21], v.to_byte());
+        }
+        if let Some(v) = self.exp_tone_vol_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x22], v.to_byte());
+        }
+        if let Some(v) = self.exp_tone_vol_normal_pu {
+            bytes.insert([base_msb, 0x00, 0x00, 0x23], v.to_byte());
+        }
+        if let Some(v) = self.exp_pitch_bend_depth {
+            bytes.insert([base_msb, 0x00, 0x00, 0x24], v.to_byte());
+        }
+        if let Some(v) = self.exp_pitch_bend_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x25], v.to_byte());
+        }
+        if let Some(v) = self.exp_pitch_bend_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x26], v.to_byte());
+        }
+        if let Some(v) = self.exp_pitch_bend_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x27], v.to_byte());
+        }
+        if let Some(v) = self.exp_mod_min {
+            bytes.insert([base_msb, 0x00, 0x00, 0x28], v);
+        }
+        if let Some(v) = self.exp_mod_max {
+            bytes.insert([base_msb, 0x00, 0x00, 0x29], v);
+        }
+        if let Some(v) = self.exp_mod_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x2A], v.to_byte());
+        }
+        if let Some(v) = self.exp_mod_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x2B], v.to_byte());
+        }
+        if let Some(v) = self.exp_cross_fader_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x2C], v.to_byte());
+        }
+        if let Some(v) = self.exp_cross_fader_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x2D], v.to_byte());
+        }
+        if let Some(v) = self.exp_cross_fader_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x2E], v.to_byte());
+        }
+        if let Some(v) = self.exp_cross_fader_normal_pu {
+            bytes.insert([base_msb, 0x00, 0x00, 0x2F], v.to_byte());
+        }
+        if let Some(v) = self.exp_delay_min {
+            bytes.insert([base_msb, 0x00, 0x00, 0x30], v);
+        }
+        if let Some(v) = self.exp_delay_max {
+            bytes.insert([base_msb, 0x00, 0x00, 0x31], v);
+        }
+        if let Some(v) = self.exp_reverb_min {
+            bytes.insert([base_msb, 0x00, 0x00, 0x32], v);
+        }
+        if let Some(v) = self.exp_reverb_max {
+            bytes.insert([base_msb, 0x00, 0x00, 0x33], v);
+        }
+        if let Some(v) = self.exp_chorus_min {
+            bytes.insert([base_msb, 0x00, 0x00, 0x34], v);
+        }
+        if let Some(v) = self.exp_chorus_max {
+            bytes.insert([base_msb, 0x00, 0x00, 0x35], v);
         }
         for (k, b) in &self.unknown_bytes {
             let (page, hi, lo) =
@@ -546,6 +797,73 @@ mod tests {
         let back_frames = area.to_frames(0x10, TEMP_MSB).unwrap();
         let round = PatchArea::from_frames_at(&back_frames, TEMP_MSB);
         assert_eq!(round, area);
+    }
+
+    #[test]
+    fn exp_block_decodes_and_round_trips() {
+        // 0x1F..=0x35 = 23 bytes.
+        let payload: Vec<u8> = vec![
+            ExpFunction::PitchBend.to_byte(), // 0x1F
+            OnOff::On.to_byte(),              // 0x20 tone_vol_pcm_1
+            OnOff::Off.to_byte(),             // 0x21 tone_vol_pcm_2
+            OnOff::On.to_byte(),              // 0x22 tone_vol_modeling
+            OnOff::Off.to_byte(),             // 0x23 tone_vol_normal_pu
+            PitchBendDepth::new(-5).unwrap().to_byte(), // 0x24
+            OnOff::On.to_byte(),              // 0x25 pitch_bend_pcm_1
+            OnOff::Off.to_byte(),             // 0x26 pitch_bend_pcm_2
+            OnOff::On.to_byte(),              // 0x27 pitch_bend_modeling
+            0x40,                             // 0x28 mod_min
+            0x60,                             // 0x29 mod_max
+            OnOff::On.to_byte(),              // 0x2A mod_pcm_1
+            OnOff::Off.to_byte(),             // 0x2B mod_pcm_2
+            CrossFaderMode::Toe.to_byte(),    // 0x2C cf_pcm_1
+            CrossFaderMode::Heel.to_byte(),   // 0x2D cf_pcm_2
+            CrossFaderMode::Off.to_byte(),    // 0x2E cf_modeling
+            CrossFaderMode::Heel.to_byte(),   // 0x2F cf_normal_pu
+            0x10,                             // 0x30 delay_min
+            0x70,                             // 0x31 delay_max
+            0x20,                             // 0x32 reverb_min
+            0x50,                             // 0x33 reverb_max
+            0x15,                             // 0x34 chorus_min
+            0x45,                             // 0x35 chorus_max
+        ];
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x00, 0x00, 0x1F],
+            data: Cow::Owned(payload),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+
+        assert_eq!(area.exp_function, Some(ExpFunction::PitchBend));
+        assert_eq!(area.exp_tone_vol_pcm_1, Some(OnOff::On));
+        assert_eq!(area.exp_tone_vol_normal_pu, Some(OnOff::Off));
+        assert_eq!(area.exp_pitch_bend_depth.unwrap().get(), -5);
+        assert_eq!(area.exp_pitch_bend_modeling, Some(OnOff::On));
+        assert_eq!(area.exp_mod_min, Some(0x40));
+        assert_eq!(area.exp_mod_max, Some(0x60));
+        assert_eq!(area.exp_mod_pcm_2, Some(OnOff::Off));
+        assert_eq!(area.exp_cross_fader_pcm_1, Some(CrossFaderMode::Toe));
+        assert_eq!(area.exp_cross_fader_pcm_2, Some(CrossFaderMode::Heel));
+        assert_eq!(area.exp_cross_fader_modeling, Some(CrossFaderMode::Off));
+        assert_eq!(area.exp_cross_fader_normal_pu, Some(CrossFaderMode::Heel));
+        assert_eq!(area.exp_delay_min, Some(0x10));
+        assert_eq!(area.exp_delay_max, Some(0x70));
+        assert_eq!(area.exp_reverb_max, Some(0x50));
+        assert_eq!(area.exp_chorus_min, Some(0x15));
+        assert_eq!(area.exp_chorus_max, Some(0x45));
+        assert!(area.unknown_bytes.is_empty());
+
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
+    }
+
+    #[test]
+    fn exp_function_byte_symmetry() {
+        for raw in 0x00_u8..=0x09 {
+            let v = ExpFunction::from_byte(raw).expect("from_byte");
+            assert_eq!(v.to_byte(), raw, "mismatch for 0x{raw:02X}");
+        }
+        assert!(ExpFunction::from_byte(0x0A).is_none());
     }
 
     #[test]

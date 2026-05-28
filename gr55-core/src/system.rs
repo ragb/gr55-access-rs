@@ -931,14 +931,14 @@ impl PitchBendDepth {
     pub fn get(self) -> i8 {
         self.0
     }
-    fn from_byte(b: u8) -> Option<Self> {
+    pub(crate) fn from_byte(b: u8) -> Option<Self> {
         if (0x0C..=0x24).contains(&b) {
             Some(PitchBendDepth((b as i8) - 24))
         } else {
             None
         }
     }
-    fn to_byte(self) -> u8 {
+    pub(crate) fn to_byte(self) -> u8 {
         (self.0 + 24) as u8
     }
 }
