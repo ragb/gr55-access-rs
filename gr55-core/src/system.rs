@@ -108,10 +108,21 @@ pub const ADDR_USB_AUDIO_OUT_HI: [u8; 4] = [0x02, 0x00, 0x00, 0x1F];
 /// Low byte of USB Audio Out Level.
 pub const ADDR_USB_AUDIO_OUT_LO: [u8; 4] = [0x02, 0x00, 0x00, 0x20];
 
-/// High byte of Patch Level (Master menu; 14-bit, 0..=200). Low byte at 0x31.
+/// High nibble of Patch Level (Master menu; 4-nibble BCD-like encoding,
+/// 0..=200). Low nibble at 0x31. Encoding source: FloorBoard
+/// `customDataKnob.cpp:106-128`.
 pub const ADDR_PATCH_LEVEL_HI: [u8; 4] = [0x02, 0x00, 0x00, 0x30];
-/// Low byte of Patch Level.
+/// Low nibble of Patch Level.
 pub const ADDR_PATCH_LEVEL_LO: [u8; 4] = [0x02, 0x00, 0x00, 0x31];
+
+/// High nibble of Master BPM (Master menu; 4-nibble BCD-like encoding).
+/// Low nibble at 0x3D. Exact BPM range is TBD (FloorBoard's range table
+/// requires a `getRange("Tables", "00", "00", "06")` lookup that I haven't
+/// fully reproduced; provisional 0..=255 here is the maximum the 4-nibble
+/// 2-byte encoding can carry).
+pub const ADDR_MASTER_BPM_HI: [u8; 4] = [0x02, 0x00, 0x00, 0x3C];
+/// Low nibble of Master BPM.
+pub const ADDR_MASTER_BPM_LO: [u8; 4] = [0x02, 0x00, 0x00, 0x3D];
 
 /// CTL Pedal Function selector (page 2). 22 enum values; chosen function
 /// determines which sub-fields at `[02, 02, 0x01..0x0C]` are active.
@@ -456,6 +467,23 @@ impl MasterTuneHz {
     }
 }
 
+/// Encode an arbitrary `u8` as two consecutive 7-bit bytes using the
+/// 4-nibble (BCD-like) scheme FloorBoard's `customDataKnob.cpp:106-128`
+/// applies whenever the UI control type is `addDataKnob`:
+/// `byte_hi = (value >> 4) & 0x0F`, `byte_lo = value & 0x0F`.
+fn encode_nibble_pair(value: u8) -> [u8; 2] {
+    [(value >> 4) & 0x0F, value & 0x0F]
+}
+
+/// Inverse of [`encode_nibble_pair`]. Returns `None` when either byte has
+/// any of bits 4–7 set (which means it isn't a valid nibble half).
+fn decode_nibble_pair(hi: u8, lo: u8) -> Option<u8> {
+    if hi > 0x0F || lo > 0x0F {
+        return None;
+    }
+    Some((hi << 4) | lo)
+}
+
 /// A 0..=200 audio level encoded on the wire as two consecutive 7-bit bytes
 /// (MSB-first) using FloorBoard's `customKnob.cpp:112-117` scheme:
 /// `byte_hi = value / 128`, `byte_lo = value % 128`. Used for Player Level,
@@ -637,6 +665,61 @@ impl ExpPedalFunction {
     }
 }
 
+/// Master Patch Level (0..=200). Wire encoding is 4-nibble (NOT the 14-bit
+/// scheme used by the Player / USB audio levels): the high nibble of the
+/// value lands at `[02, 00, 0x30]` and the low nibble at `[02, 00, 0x31]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PatchLevel(u8);
+
+impl PatchLevel {
+    pub fn new(value: u8) -> Option<Self> {
+        if value <= 200 {
+            Some(PatchLevel(value))
+        } else {
+            None
+        }
+    }
+    pub fn get(self) -> u8 {
+        self.0
+    }
+    fn from_two_bytes(hi: u8, lo: u8) -> Option<Self> {
+        let v = decode_nibble_pair(hi, lo)?;
+        if v > 200 {
+            return None;
+        }
+        Some(PatchLevel(v))
+    }
+    fn to_two_bytes(self) -> [u8; 2] {
+        encode_nibble_pair(self.0)
+    }
+}
+
+/// Master tempo (BPM). 4-nibble 2-byte encoding at `[02, 00, 0x3C..0x3D]`.
+/// The valid range isn't pinned down yet — it depends on a lookup against
+/// FloorBoard's `<Tables>` range tables that I haven't reproduced; the type
+/// accepts the full `0..=255` the 4-nibble encoding can carry. Real-device
+/// behavior may reject values outside the GR-55's documented range
+/// (Roland devices typically support 40..=250 BPM for master tempo).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct MasterBpm(u8);
+
+impl MasterBpm {
+    pub fn new(value: u8) -> Self {
+        MasterBpm(value)
+    }
+    pub fn get(self) -> u8 {
+        self.0
+    }
+    fn from_two_bytes(hi: u8, lo: u8) -> Option<Self> {
+        decode_nibble_pair(hi, lo).map(MasterBpm)
+    }
+    fn to_two_bytes(self) -> [u8; 2] {
+        encode_nibble_pair(self.0)
+    }
+}
+
 /// Guitar/Bass mode (same enum as patch byte 0; reused for system Startup Mode).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -731,10 +814,15 @@ pub struct SystemArea {
     pub usb_audio_in_level: Option<AudioLevel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usb_audio_out_level: Option<AudioLevel>,
-    /// Master "Patch Level" knob — 14-bit, range 0..=200, same encoding as the
-    /// USB / Player audio levels.
+    /// Master "Patch Level" knob — 4-nibble 2-byte encoding, range 0..=200.
+    /// Distinct from the 14-bit `AudioLevel` used for the Player / USB knobs;
+    /// FloorBoard's `addDataKnob` (Master menu) uses BCD-like packing while
+    /// its `addKnob` (System menu) uses MSB-first 14-bit.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub patch_level: Option<AudioLevel>,
+    pub patch_level: Option<PatchLevel>,
+    /// Master BPM (tempo). 4-nibble 2-byte encoding; exact valid range TBD.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub master_bpm: Option<MasterBpm>,
     /// CTL footswitch function assignment.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ctl_pedal_function: Option<CtlPedalFunction>,
@@ -819,7 +907,18 @@ impl SystemArea {
             consume_audio_level(&mut bytes, ADDR_USB_AUDIO_IN_HI, ADDR_USB_AUDIO_IN_LO);
         out.usb_audio_out_level =
             consume_audio_level(&mut bytes, ADDR_USB_AUDIO_OUT_HI, ADDR_USB_AUDIO_OUT_LO);
-        out.patch_level = consume_audio_level(&mut bytes, ADDR_PATCH_LEVEL_HI, ADDR_PATCH_LEVEL_LO);
+        out.patch_level = consume_two_byte(
+            &mut bytes,
+            ADDR_PATCH_LEVEL_HI,
+            ADDR_PATCH_LEVEL_LO,
+            PatchLevel::from_two_bytes,
+        );
+        out.master_bpm = consume_two_byte(
+            &mut bytes,
+            ADDR_MASTER_BPM_HI,
+            ADDR_MASTER_BPM_LO,
+            MasterBpm::from_two_bytes,
+        );
         out.ctl_pedal_function =
             take(&mut bytes, ADDR_CTL_PEDAL_FUNCTION).and_then(CtlPedalFunction::from_byte);
         out.exp_pedal_off_function =
@@ -951,13 +1050,22 @@ impl SystemArea {
                 ADDR_USB_AUDIO_OUT_HI,
                 ADDR_USB_AUDIO_OUT_LO,
             ),
-            (self.patch_level, ADDR_PATCH_LEVEL_HI, ADDR_PATCH_LEVEL_LO),
         ] {
             if let Some(v) = level {
                 let [hi, lo] = v.to_two_bytes();
                 bytes.insert(hi_addr, hi);
                 bytes.insert(lo_addr, lo);
             }
+        }
+        if let Some(v) = self.patch_level {
+            let [hi, lo] = v.to_two_bytes();
+            bytes.insert(ADDR_PATCH_LEVEL_HI, hi);
+            bytes.insert(ADDR_PATCH_LEVEL_LO, lo);
+        }
+        if let Some(v) = self.master_bpm {
+            let [hi, lo] = v.to_two_bytes();
+            bytes.insert(ADDR_MASTER_BPM_HI, hi);
+            bytes.insert(ADDR_MASTER_BPM_LO, lo);
         }
         if let Some(v) = self.ctl_pedal_function {
             bytes.insert(ADDR_CTL_PEDAL_FUNCTION, v.to_byte());
@@ -997,6 +1105,22 @@ fn consume_audio_level(
     bytes.remove(&hi);
     bytes.remove(&lo);
     Some(level)
+}
+
+/// Generic two-byte consumer: only takes both bytes if both are present
+/// and the supplied decoder accepts them.
+fn consume_two_byte<T>(
+    bytes: &mut BTreeMap<[u8; 4], u8>,
+    hi: [u8; 4],
+    lo: [u8; 4],
+    decoder: impl Fn(u8, u8) -> Option<T>,
+) -> Option<T> {
+    let hi_byte = *bytes.get(&hi)?;
+    let lo_byte = *bytes.get(&lo)?;
+    let value = decoder(hi_byte, lo_byte)?;
+    bytes.remove(&hi);
+    bytes.remove(&lo);
+    Some(value)
 }
 
 /// Pull both bytes of the Current Patch 14-bit selector out of the byte map
@@ -1104,7 +1228,8 @@ mod tests {
             player_level: Some(AudioLevel::new(100).unwrap()),
             usb_audio_in_level: Some(AudioLevel::new(128).unwrap()),
             usb_audio_out_level: Some(AudioLevel::new(200).unwrap()),
-            patch_level: Some(AudioLevel::new(75).unwrap()),
+            patch_level: Some(PatchLevel::new(75).unwrap()),
+            master_bpm: Some(MasterBpm::new(120)),
             ctl_pedal_function: Some(CtlPedalFunction::TapTempo),
             exp_pedal_off_function: Some(ExpPedalFunction::PatchVolume),
             exp_pedal_on_function: Some(ExpPedalFunction::Modulation),
@@ -1311,6 +1436,87 @@ mod tests {
                 assert_eq!(back.current_patch, Some(slot), "{slot}");
             }
         }
+    }
+
+    #[test]
+    fn nibble_pair_pins_floorboard_bcd_encoding() {
+        // Per customDataKnob.cpp:106-128, value 0xC8 (=200) splits to
+        // byte_hi = 0x0C (= the high hex digit, zero-padded as one byte)
+        // byte_lo = 0x08 (= the low hex digit, zero-padded as one byte).
+        for (v, hi, lo) in [
+            (0_u8, 0_u8, 0_u8),
+            (15, 0x00, 0x0F),
+            (16, 0x01, 0x00),
+            (75, 0x04, 0x0B),
+            (200, 0x0C, 0x08),
+            (255, 0x0F, 0x0F),
+        ] {
+            assert_eq!(encode_nibble_pair(v), [hi, lo], "encode {v}");
+            assert_eq!(
+                decode_nibble_pair(hi, lo),
+                Some(v),
+                "decode {hi:#x},{lo:#x}"
+            );
+        }
+        // Reject bytes with bits 4..=7 set (not legal nibble bytes).
+        assert!(decode_nibble_pair(0x10, 0x00).is_none());
+        assert!(decode_nibble_pair(0x00, 0x80).is_none());
+    }
+
+    #[test]
+    fn patch_level_roundtrip_full_range() {
+        for v in 0..=200_u8 {
+            let level = PatchLevel::new(v).unwrap();
+            let area = SystemArea {
+                patch_level: Some(level),
+                ..SystemArea::default()
+            };
+            let frames = area.to_frames(0x10).unwrap();
+            let back = SystemArea::from_frames(&frames);
+            assert_eq!(back.patch_level, Some(level), "round-trip failed for {v}");
+        }
+        assert!(PatchLevel::new(201).is_none());
+    }
+
+    #[test]
+    fn master_bpm_uses_distinct_wire_bytes_from_audio_level() {
+        // patch_level (4-nibble) and player_level (14-bit) at value 200 produce
+        // different wire bytes — this guards against accidentally swapping
+        // the two encodings in a future refactor.
+        let nibble = SystemArea {
+            patch_level: Some(PatchLevel::new(200).unwrap()),
+            ..SystemArea::default()
+        };
+        let mut nibble_bytes = std::collections::BTreeMap::new();
+        for frame in nibble.to_frames(0x10).unwrap() {
+            if let Frame::Dt1 { address, data, .. } = frame {
+                for (i, b) in data.iter().enumerate() {
+                    let mut a = address;
+                    a[3] = address[3].wrapping_add(i as u8);
+                    nibble_bytes.insert(a, *b);
+                }
+            }
+        }
+        assert_eq!(nibble_bytes.get(&ADDR_PATCH_LEVEL_HI), Some(&0x0C));
+        assert_eq!(nibble_bytes.get(&ADDR_PATCH_LEVEL_LO), Some(&0x08));
+
+        let mb = SystemArea {
+            master_bpm: Some(MasterBpm::new(120)),
+            ..SystemArea::default()
+        };
+        let mut bpm_bytes = std::collections::BTreeMap::new();
+        for frame in mb.to_frames(0x10).unwrap() {
+            if let Frame::Dt1 { address, data, .. } = frame {
+                for (i, b) in data.iter().enumerate() {
+                    let mut a = address;
+                    a[3] = address[3].wrapping_add(i as u8);
+                    bpm_bytes.insert(a, *b);
+                }
+            }
+        }
+        // 120 = 0x78 → high nibble 7, low nibble 8.
+        assert_eq!(bpm_bytes.get(&ADDR_MASTER_BPM_HI), Some(&0x07));
+        assert_eq!(bpm_bytes.get(&ADDR_MASTER_BPM_LO), Some(&0x08));
     }
 
     #[test]
