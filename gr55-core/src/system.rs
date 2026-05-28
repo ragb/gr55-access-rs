@@ -497,41 +497,69 @@ impl Mode {
 /// yet modeled as a typed field — this keeps round-trip lossless before each
 /// field gets an enum or struct.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", default)]
 pub struct SystemArea {
     /// Currently-selected patch, encoded on the wire as two consecutive 7-bit
     /// bytes (14-bit MSB-first) — same scheme as the audio levels. Decoded via
     /// [`PatchSlot::from_linear_index`]; the gap between USER (indices 0..=296)
     /// and PRESET (indices 384..) yields `None` since it represents reserved
     /// `void` slots that don't correspond to a real patch.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub current_patch: Option<PatchSlot>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gk_set: Option<GkSet>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output_select: Option<OutputSelect>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub assign_hold: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub midi_channel: Option<MidiChannel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pc_rx: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pc_tx: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub v_link_tx_channel: Option<MidiChannel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub guitar_midi_out: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub midi_out_mode: Option<MidiOutMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub chromatic: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub string_channel_base: Option<StringChannelBase>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub data_thin: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ctl_pedal_cc: Option<PedalCc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub exp_pedal_cc: Option<PedalCc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub exp_pedal_bend: Option<ExpPedalBend>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gk_vol_cc: Option<PedalCc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gk_s1_cc: Option<PedalCc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gk_s2_cc: Option<PedalCc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub midi_map: Option<MidiMap>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub monitor_direct: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub guitar_out_source: Option<GuitarOutSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub master_tune: Option<MasterTuneHz>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tuner_mute: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub startup_mode: Option<Mode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub player_level: Option<AudioLevel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub usb_audio_in_level: Option<AudioLevel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub usb_audio_out_level: Option<AudioLevel>,
 
     /// Every System-area byte not yet promoted to a typed field, keyed by its
