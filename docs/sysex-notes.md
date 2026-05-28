@@ -190,6 +190,7 @@ checksum, proving our algorithm is correct.
 - [x] Universal Identity Reply bytes. **Resolved (MEDIUM):** family code `53 02`, request `F0 7E 10 06 01 F7`. Software-revision bytes still need real-device confirmation.
 - [x] USER and PRESET patch base addresses. **Resolved (HIGH):** `[0x20 + n, p, 0, 0]` where `n*128 + p = (bank-1)*3 + (position-1)`, with a +87 index gap before PRESET. Implemented in `gr55-core::address`.
 - [ ] Tempo / BPM encoding.
+- [x] Multi-byte 0..=200 audio-level encoding for Player Level, USB Audio In, USB Audio Out at MSB `0x02` offsets `0x1B`/`0x1D`/`0x1F`. **Resolved (MEDIUM):** standard 14-bit MSB-first packed into two consecutive 7-bit bytes per FloorBoard's `customKnob.cpp:112-117` — `byte_hi = value / 128`, `byte_lo = value % 128`, written at `(hex3, hex3+1)`. Implemented in `gr55-core::system::AudioLevel`; round-trip tested against every value 0..=200. Hardware confirmation pending.
 - [x] Confirm checksum formula matches a real fixture. **Resolved:** formula `(128 − sum%128) % 128` over address+data is correct; verified by hand-computation over the first frame of `system.syx` (sum 0x3A → checksum 0x46 = matches file) and by every `gr55-core` strict round-trip test passing.
 - [ ] PC# → patch mapping (does PC#0 select User 01:1 or User 01:1's whole bank-of-3?).
 - [ ] Broadcast device-id (`7F`) behavior.

@@ -1,15 +1,21 @@
 //! Typed GR-55 System Area model.
 //!
-//! Coverage of MSB `0x02` page 0 (the System menu page in FloorBoard) is now
-//! complete except for the three multi-byte audio levels at offsets `0x1B`
-//! (Audio Player level), `0x1D` (USB Audio In), `0x1F` (USB Audio Out), which
-//! all share a 2-byte 0..=200 encoding that hasn't been verified against
-//! hardware. Those bytes land in `unknown_bytes` for now, preserving lossless
-//! round-trip.
+//! MSB `0x02` page 0 — FloorBoard's System menu page — is fully typed,
+//! including the three multi-byte audio levels (Player Level, USB Audio In,
+//! USB Audio Out) whose 14-bit MSB-first encoding came out of FloorBoard's
+//! `customKnob.cpp:112-117`.
+//!
+//! Still on `unknown_bytes` until typed:
+//! - MSB `0x01` Current Patch bytes 1..18 (3-byte encoding TBD).
+//! - MSB `0x02` page 2 (CTL Pedal Function stack control).
+//! - Master menu page (`menuPage_master.cpp`).
 //!
 //! Cross-references:
 //! - **Field list**: FloorBoard's `menuPage_system.cpp`. The `(hex1, hex2,
 //!   hex3)` triplet on each `addComboBox` / `addKnob` call is the wire address.
+//! - **Multi-byte encoding**: FloorBoard's `customKnob.cpp:102-136` —
+//!   `byte_hi = value / 128`, `byte_lo = value % 128`, written to consecutive
+//!   addresses starting at `(hex1, hex2, hex3)`.
 //! - **Per-field semantics**: `data/midi.xml` `<System>` section, exposed via
 //!   `gr55_core::midi_map::SYSTEM_PARAMETERS`.
 
