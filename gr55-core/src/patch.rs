@@ -438,6 +438,55 @@ pub struct PatchArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exp_chorus_max: Option<u8>,
 
+    // ---- EXP ON block (page 0x00 offsets 0x36..=0x4C) ----
+    // Mirrors the EXP block field-for-field; same enums and ranges.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_function: Option<ExpFunction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_tone_vol_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_tone_vol_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_tone_vol_modeling: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_tone_vol_normal_pu: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_pitch_bend_depth: Option<PitchBendDepth>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_pitch_bend_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_pitch_bend_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_pitch_bend_modeling: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_mod_min: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_mod_max: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_mod_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_mod_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_cross_fader_pcm_1: Option<CrossFaderMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_cross_fader_pcm_2: Option<CrossFaderMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_cross_fader_modeling: Option<CrossFaderMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_cross_fader_normal_pu: Option<CrossFaderMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_delay_min: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_delay_max: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_reverb_min: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_reverb_max: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_chorus_min: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_chorus_max: Option<u8>,
+
     /// Everything inside the patch payload that the typed model doesn't yet
     /// cover. Keys are formatted `"PP:HH:LL"` — page byte, then the two
     /// in-page offset bytes.
@@ -539,6 +588,29 @@ impl PatchArea {
             (0x00, 0x00, 0x33) if b <= 100 => self.exp_reverb_max = Some(b),
             (0x00, 0x00, 0x34) if b <= 100 => self.exp_chorus_min = Some(b),
             (0x00, 0x00, 0x35) if b <= 100 => self.exp_chorus_max = Some(b),
+            (0x00, 0x00, 0x36) => self.exp_on_function = ExpFunction::from_byte(b),
+            (0x00, 0x00, 0x37) => self.exp_on_tone_vol_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x38) => self.exp_on_tone_vol_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x39) => self.exp_on_tone_vol_modeling = OnOff::from_byte(b),
+            (0x00, 0x00, 0x3A) => self.exp_on_tone_vol_normal_pu = OnOff::from_byte(b),
+            (0x00, 0x00, 0x3B) => self.exp_on_pitch_bend_depth = PitchBendDepth::from_byte(b),
+            (0x00, 0x00, 0x3C) => self.exp_on_pitch_bend_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x3D) => self.exp_on_pitch_bend_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x3E) => self.exp_on_pitch_bend_modeling = OnOff::from_byte(b),
+            (0x00, 0x00, 0x3F) if b <= 127 => self.exp_on_mod_min = Some(b),
+            (0x00, 0x00, 0x40) if b <= 127 => self.exp_on_mod_max = Some(b),
+            (0x00, 0x00, 0x41) => self.exp_on_mod_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x42) => self.exp_on_mod_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x43) => self.exp_on_cross_fader_pcm_1 = CrossFaderMode::from_byte(b),
+            (0x00, 0x00, 0x44) => self.exp_on_cross_fader_pcm_2 = CrossFaderMode::from_byte(b),
+            (0x00, 0x00, 0x45) => self.exp_on_cross_fader_modeling = CrossFaderMode::from_byte(b),
+            (0x00, 0x00, 0x46) => self.exp_on_cross_fader_normal_pu = CrossFaderMode::from_byte(b),
+            (0x00, 0x00, 0x47) if b <= 120 => self.exp_on_delay_min = Some(b),
+            (0x00, 0x00, 0x48) if b <= 120 => self.exp_on_delay_max = Some(b),
+            (0x00, 0x00, 0x49) if b <= 100 => self.exp_on_reverb_min = Some(b),
+            (0x00, 0x00, 0x4A) if b <= 100 => self.exp_on_reverb_max = Some(b),
+            (0x00, 0x00, 0x4B) if b <= 100 => self.exp_on_chorus_min = Some(b),
+            (0x00, 0x00, 0x4C) if b <= 100 => self.exp_on_chorus_max = Some(b),
             _ => {
                 self.unknown_bytes.insert(format_key(page, hi, lo), b);
             }
@@ -667,6 +739,76 @@ impl PatchArea {
         }
         if let Some(v) = self.exp_chorus_max {
             bytes.insert([base_msb, 0x00, 0x00, 0x35], v);
+        }
+        // EXP ON block
+        if let Some(v) = self.exp_on_function {
+            bytes.insert([base_msb, 0x00, 0x00, 0x36], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_tone_vol_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x37], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_tone_vol_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x38], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_tone_vol_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x39], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_tone_vol_normal_pu {
+            bytes.insert([base_msb, 0x00, 0x00, 0x3A], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_pitch_bend_depth {
+            bytes.insert([base_msb, 0x00, 0x00, 0x3B], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_pitch_bend_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x3C], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_pitch_bend_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x3D], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_pitch_bend_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x3E], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_mod_min {
+            bytes.insert([base_msb, 0x00, 0x00, 0x3F], v);
+        }
+        if let Some(v) = self.exp_on_mod_max {
+            bytes.insert([base_msb, 0x00, 0x00, 0x40], v);
+        }
+        if let Some(v) = self.exp_on_mod_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x41], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_mod_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x42], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_cross_fader_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x43], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_cross_fader_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x44], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_cross_fader_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x45], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_cross_fader_normal_pu {
+            bytes.insert([base_msb, 0x00, 0x00, 0x46], v.to_byte());
+        }
+        if let Some(v) = self.exp_on_delay_min {
+            bytes.insert([base_msb, 0x00, 0x00, 0x47], v);
+        }
+        if let Some(v) = self.exp_on_delay_max {
+            bytes.insert([base_msb, 0x00, 0x00, 0x48], v);
+        }
+        if let Some(v) = self.exp_on_reverb_min {
+            bytes.insert([base_msb, 0x00, 0x00, 0x49], v);
+        }
+        if let Some(v) = self.exp_on_reverb_max {
+            bytes.insert([base_msb, 0x00, 0x00, 0x4A], v);
+        }
+        if let Some(v) = self.exp_on_chorus_min {
+            bytes.insert([base_msb, 0x00, 0x00, 0x4B], v);
+        }
+        if let Some(v) = self.exp_on_chorus_max {
+            bytes.insert([base_msb, 0x00, 0x00, 0x4C], v);
         }
         for (k, b) in &self.unknown_bytes {
             let (page, hi, lo) =
@@ -852,6 +994,60 @@ mod tests {
         assert_eq!(area.exp_chorus_min, Some(0x15));
         assert_eq!(area.exp_chorus_max, Some(0x45));
         assert!(area.unknown_bytes.is_empty());
+
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
+    }
+
+    #[test]
+    fn exp_on_block_decodes_and_round_trips() {
+        // Distinct values from the EXP test so a swap between the two
+        // blocks would show up as a mismatch.
+        let payload: Vec<u8> = vec![
+            ExpFunction::ModControl.to_byte(), // 0x36
+            OnOff::Off.to_byte(),              // 0x37
+            OnOff::On.to_byte(),               // 0x38
+            OnOff::Off.to_byte(),              // 0x39
+            OnOff::On.to_byte(),               // 0x3A
+            PitchBendDepth::new(7).unwrap().to_byte(), // 0x3B
+            OnOff::Off.to_byte(),              // 0x3C
+            OnOff::On.to_byte(),               // 0x3D
+            OnOff::Off.to_byte(),              // 0x3E
+            0x05,                              // 0x3F mod_min
+            0x65,                              // 0x40 mod_max
+            OnOff::Off.to_byte(),              // 0x41
+            OnOff::On.to_byte(),               // 0x42
+            CrossFaderMode::Heel.to_byte(),    // 0x43
+            CrossFaderMode::Toe.to_byte(),     // 0x44
+            CrossFaderMode::Heel.to_byte(),    // 0x45
+            CrossFaderMode::Off.to_byte(),     // 0x46
+            0x05,                              // 0x47 delay_min
+            0x55,                              // 0x48 delay_max
+            0x15,                              // 0x49 reverb_min
+            0x64,                              // 0x4A reverb_max (max raw = 100)
+            0x05,                              // 0x4B chorus_min
+            0x45,                              // 0x4C chorus_max
+        ];
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x00, 0x00, 0x36],
+            data: Cow::Owned(payload),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+        assert_eq!(area.exp_on_function, Some(ExpFunction::ModControl));
+        assert_eq!(area.exp_on_pitch_bend_depth.unwrap().get(), 7);
+        assert_eq!(area.exp_on_mod_min, Some(0x05));
+        assert_eq!(area.exp_on_mod_max, Some(0x65));
+        assert_eq!(area.exp_on_cross_fader_pcm_1, Some(CrossFaderMode::Heel));
+        assert_eq!(area.exp_on_cross_fader_normal_pu, Some(CrossFaderMode::Off));
+        assert_eq!(area.exp_on_reverb_max, Some(0x64));
+        assert_eq!(area.exp_on_chorus_max, Some(0x45));
+        assert!(area.unknown_bytes.is_empty());
+
+        // None of the EXP-OFF fields should have been touched.
+        assert!(area.exp_function.is_none());
+        assert!(area.exp_pitch_bend_depth.is_none());
+        assert!(area.exp_chorus_max.is_none());
 
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
