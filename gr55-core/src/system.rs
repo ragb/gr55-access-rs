@@ -305,14 +305,14 @@ pub enum OnOff {
 }
 
 impl OnOff {
-    fn from_byte(b: u8) -> Option<Self> {
+    pub(crate) fn from_byte(b: u8) -> Option<Self> {
         match b {
             0 => Some(OnOff::Off),
             1 => Some(OnOff::On),
             _ => None,
         }
     }
-    fn to_byte(self) -> u8 {
+    pub(crate) fn to_byte(self) -> u8 {
         match self {
             OnOff::Off => 0,
             OnOff::On => 1,
@@ -955,7 +955,7 @@ pub enum HoldType {
 }
 
 impl HoldType {
-    fn from_byte(b: u8) -> Option<Self> {
+    pub(crate) fn from_byte(b: u8) -> Option<Self> {
         Some(match b {
             0 => HoldType::Type1,
             1 => HoldType::Type2,
@@ -964,7 +964,7 @@ impl HoldType {
             _ => return None,
         })
     }
-    fn to_byte(self) -> u8 {
+    pub(crate) fn to_byte(self) -> u8 {
         match self {
             HoldType::Type1 => 0,
             HoldType::Type2 => 1,
@@ -984,14 +984,14 @@ pub enum SwitchMode {
 }
 
 impl SwitchMode {
-    fn from_byte(b: u8) -> Option<Self> {
+    pub(crate) fn from_byte(b: u8) -> Option<Self> {
         match b {
             0 => Some(SwitchMode::Latch),
             1 => Some(SwitchMode::Moment),
             _ => None,
         }
     }
-    fn to_byte(self) -> u8 {
+    pub(crate) fn to_byte(self) -> u8 {
         match self {
             SwitchMode::Latch => 0,
             SwitchMode::Moment => 1,

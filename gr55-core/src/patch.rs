@@ -45,6 +45,7 @@ use thiserror::Error;
 
 use crate::codec::CodecError;
 use crate::sysex::Frame;
+use crate::system::{HoldType, OnOff, SwitchMode};
 
 /// 16-char patch name (ASCII 0x20..=0x7D, the printable subset FloorBoard
 /// allows). Stored as raw bytes so that round-trip preserves any byte the
@@ -149,6 +150,83 @@ impl PatchMode {
     }
 }
 
+/// Patch CTL pedal function (page `0x00` offset `0x12`).
+///
+/// Distinct from the System-area `CtlPedalFunction` — the patch enum has 17
+/// variants instead of 22 and includes `LedMoment` / `LedToggle` (LED
+/// behaviour for the CTL switch) while omitting the System-area navigation
+/// functions (Sound Style / Bank Number / Patch Number Inc/Dec) and the
+/// `Patch Setting` variant. Mined from FloorBoard `midi.xml:38690-38708`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CtlFunction {
+    Off,
+    Hold,
+    TapTempo,
+    ToneSw,
+    AmpSw,
+    ModSw,
+    MfxSw,
+    DelaySw,
+    ReverbSw,
+    ChorusSw,
+    AudioPlayerPlayStop,
+    AudioPlayerSongInc,
+    AudioPlayerSongDec,
+    AudioPlayerSw,
+    VLinkSw,
+    LedMoment,
+    LedToggle,
+}
+
+impl CtlFunction {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use CtlFunction::*;
+        Some(match b {
+            0x00 => Off,
+            0x01 => Hold,
+            0x02 => TapTempo,
+            0x03 => ToneSw,
+            0x04 => AmpSw,
+            0x05 => ModSw,
+            0x06 => MfxSw,
+            0x07 => DelaySw,
+            0x08 => ReverbSw,
+            0x09 => ChorusSw,
+            0x0A => AudioPlayerPlayStop,
+            0x0B => AudioPlayerSongInc,
+            0x0C => AudioPlayerSongDec,
+            0x0D => AudioPlayerSw,
+            0x0E => VLinkSw,
+            0x0F => LedMoment,
+            0x10 => LedToggle,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use CtlFunction::*;
+        match self {
+            Off => 0x00,
+            Hold => 0x01,
+            TapTempo => 0x02,
+            ToneSw => 0x03,
+            AmpSw => 0x04,
+            ModSw => 0x05,
+            MfxSw => 0x06,
+            DelaySw => 0x07,
+            ReverbSw => 0x08,
+            ChorusSw => 0x09,
+            AudioPlayerPlayStop => 0x0A,
+            AudioPlayerSongInc => 0x0B,
+            AudioPlayerSongDec => 0x0C,
+            AudioPlayerSw => 0x0D,
+            VLinkSw => 0x0E,
+            LedMoment => 0x0F,
+            LedToggle => 0x10,
+        }
+    }
+}
+
 /// Typed view of a single GR-55 patch payload. MSB-agnostic — the caller
 /// supplies the base MSB when decoding or encoding.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -157,6 +235,51 @@ pub struct PatchArea {
     pub mode: Option<PatchMode>,
     #[serde(default, skip_serializing_if = "PatchName::is_empty")]
     pub name: PatchName,
+
+    // ---- CTL pedal block (page 0x00 offsets 0x11..=0x1E) ----
+    /// CTL Status at `0x11`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_status: Option<OnOff>,
+    /// CTL Function at `0x12`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_function: Option<CtlFunction>,
+    /// CTL Hold Type at `0x13` (Type 1..=4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_hold_type: Option<HoldType>,
+    /// CTL Hold Switch Mode at `0x14` (Latch / Moment).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_switch_mode: Option<SwitchMode>,
+    /// CTL Hold PCM 1 at `0x15`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_hold_pcm_1: Option<OnOff>,
+    /// CTL Hold PCM 2 at `0x16`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_hold_pcm_2: Option<OnOff>,
+    /// CTL Tone Sw OFF: PCM 1 at `0x17`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_off_pcm_1: Option<OnOff>,
+    /// CTL Tone Sw OFF: PCM 2 at `0x18`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_off_pcm_2: Option<OnOff>,
+    /// CTL Tone Sw OFF: Modeling at `0x19`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_off_modeling: Option<OnOff>,
+    /// CTL Tone Sw OFF: Normal PU at `0x1A`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_off_normal_pu: Option<OnOff>,
+    /// CTL Tone Sw ON: PCM 1 at `0x1B`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_on_pcm_1: Option<OnOff>,
+    /// CTL Tone Sw ON: PCM 2 at `0x1C`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_on_pcm_2: Option<OnOff>,
+    /// CTL Tone Sw ON: Modeling at `0x1D`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_on_modeling: Option<OnOff>,
+    /// CTL Tone Sw ON: Normal PU at `0x1E`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_tone_sw_on_normal_pu: Option<OnOff>,
+
     /// Everything inside the patch payload that the typed model doesn't yet
     /// cover. Keys are formatted `"PP:HH:LL"` — page byte, then the two
     /// in-page offset bytes.
@@ -221,6 +344,20 @@ impl PatchArea {
         match (page, hi, lo) {
             (0x00, 0x00, 0x00) => self.mode = PatchMode::from_byte(b),
             (0x00, 0x00, off @ 0x01..=0x10) => self.name.0[(off - 0x01) as usize] = b,
+            (0x00, 0x00, 0x11) => self.ctl_status = OnOff::from_byte(b),
+            (0x00, 0x00, 0x12) => self.ctl_function = CtlFunction::from_byte(b),
+            (0x00, 0x00, 0x13) => self.ctl_hold_type = HoldType::from_byte(b),
+            (0x00, 0x00, 0x14) => self.ctl_switch_mode = SwitchMode::from_byte(b),
+            (0x00, 0x00, 0x15) => self.ctl_hold_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x16) => self.ctl_hold_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x17) => self.ctl_tone_sw_off_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x18) => self.ctl_tone_sw_off_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x19) => self.ctl_tone_sw_off_modeling = OnOff::from_byte(b),
+            (0x00, 0x00, 0x1A) => self.ctl_tone_sw_off_normal_pu = OnOff::from_byte(b),
+            (0x00, 0x00, 0x1B) => self.ctl_tone_sw_on_pcm_1 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x1C) => self.ctl_tone_sw_on_pcm_2 = OnOff::from_byte(b),
+            (0x00, 0x00, 0x1D) => self.ctl_tone_sw_on_modeling = OnOff::from_byte(b),
+            (0x00, 0x00, 0x1E) => self.ctl_tone_sw_on_normal_pu = OnOff::from_byte(b),
             _ => {
                 self.unknown_bytes.insert(format_key(page, hi, lo), b);
             }
@@ -236,6 +373,49 @@ impl PatchArea {
             if *b != 0x20 {
                 bytes.insert([base_msb, 0x00, 0x00, 0x01 + i as u8], *b);
             }
+        }
+        // CTL block
+        if let Some(v) = self.ctl_status {
+            bytes.insert([base_msb, 0x00, 0x00, 0x11], v.to_byte());
+        }
+        if let Some(v) = self.ctl_function {
+            bytes.insert([base_msb, 0x00, 0x00, 0x12], v.to_byte());
+        }
+        if let Some(v) = self.ctl_hold_type {
+            bytes.insert([base_msb, 0x00, 0x00, 0x13], v.to_byte());
+        }
+        if let Some(v) = self.ctl_switch_mode {
+            bytes.insert([base_msb, 0x00, 0x00, 0x14], v.to_byte());
+        }
+        if let Some(v) = self.ctl_hold_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x15], v.to_byte());
+        }
+        if let Some(v) = self.ctl_hold_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x16], v.to_byte());
+        }
+        if let Some(v) = self.ctl_tone_sw_off_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x17], v.to_byte());
+        }
+        if let Some(v) = self.ctl_tone_sw_off_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x18], v.to_byte());
+        }
+        if let Some(v) = self.ctl_tone_sw_off_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x19], v.to_byte());
+        }
+        if let Some(v) = self.ctl_tone_sw_off_normal_pu {
+            bytes.insert([base_msb, 0x00, 0x00, 0x1A], v.to_byte());
+        }
+        if let Some(v) = self.ctl_tone_sw_on_pcm_1 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x1B], v.to_byte());
+        }
+        if let Some(v) = self.ctl_tone_sw_on_pcm_2 {
+            bytes.insert([base_msb, 0x00, 0x00, 0x1C], v.to_byte());
+        }
+        if let Some(v) = self.ctl_tone_sw_on_modeling {
+            bytes.insert([base_msb, 0x00, 0x00, 0x1D], v.to_byte());
+        }
+        if let Some(v) = self.ctl_tone_sw_on_normal_pu {
+            bytes.insert([base_msb, 0x00, 0x00, 0x1E], v.to_byte());
         }
         for (k, b) in &self.unknown_bytes {
             let (page, hi, lo) =
@@ -316,6 +496,65 @@ mod tests {
         ];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
         assert_eq!(area.mode, Some(PatchMode::Guitar));
+    }
+
+    #[test]
+    fn ctl_block_decodes_and_round_trips() {
+        // Build a payload covering 0x00..=0x1E in one DT1 frame.
+        let mut data = vec![PatchMode::Guitar.to_byte()];
+        data.extend(b"Crunch          "); // 16-char name at 0x01..=0x10
+        data.push(OnOff::On.to_byte()); // 0x11 ctl_status
+        data.push(CtlFunction::TapTempo.to_byte()); // 0x12
+        data.push(HoldType::Type2.to_byte()); // 0x13
+        data.push(SwitchMode::Moment.to_byte()); // 0x14
+        data.push(OnOff::On.to_byte()); // 0x15 hold_pcm_1
+        data.push(OnOff::Off.to_byte()); // 0x16 hold_pcm_2
+        data.push(OnOff::On.to_byte()); // 0x17 off_pcm_1
+        data.push(OnOff::Off.to_byte()); // 0x18 off_pcm_2
+        data.push(OnOff::On.to_byte()); // 0x19 off_modeling
+        data.push(OnOff::Off.to_byte()); // 0x1A off_normal_pu
+        data.push(OnOff::Off.to_byte()); // 0x1B on_pcm_1
+        data.push(OnOff::On.to_byte()); // 0x1C on_pcm_2
+        data.push(OnOff::Off.to_byte()); // 0x1D on_modeling
+        data.push(OnOff::On.to_byte()); // 0x1E on_normal_pu
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x00, 0x00, 0x00],
+            data: Cow::Owned(data),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+
+        assert_eq!(area.mode, Some(PatchMode::Guitar));
+        assert_eq!(area.name.as_string().trim_end(), "Crunch");
+        assert_eq!(area.ctl_status, Some(OnOff::On));
+        assert_eq!(area.ctl_function, Some(CtlFunction::TapTempo));
+        assert_eq!(area.ctl_hold_type, Some(HoldType::Type2));
+        assert_eq!(area.ctl_switch_mode, Some(SwitchMode::Moment));
+        assert_eq!(area.ctl_hold_pcm_1, Some(OnOff::On));
+        assert_eq!(area.ctl_hold_pcm_2, Some(OnOff::Off));
+        assert_eq!(area.ctl_tone_sw_off_pcm_1, Some(OnOff::On));
+        assert_eq!(area.ctl_tone_sw_off_pcm_2, Some(OnOff::Off));
+        assert_eq!(area.ctl_tone_sw_off_modeling, Some(OnOff::On));
+        assert_eq!(area.ctl_tone_sw_off_normal_pu, Some(OnOff::Off));
+        assert_eq!(area.ctl_tone_sw_on_pcm_1, Some(OnOff::Off));
+        assert_eq!(area.ctl_tone_sw_on_pcm_2, Some(OnOff::On));
+        assert_eq!(area.ctl_tone_sw_on_modeling, Some(OnOff::Off));
+        assert_eq!(area.ctl_tone_sw_on_normal_pu, Some(OnOff::On));
+        assert!(area.unknown_bytes.is_empty());
+
+        // Round-trip
+        let back_frames = area.to_frames(0x10, TEMP_MSB).unwrap();
+        let round = PatchArea::from_frames_at(&back_frames, TEMP_MSB);
+        assert_eq!(round, area);
+    }
+
+    #[test]
+    fn ctl_function_byte_symmetry() {
+        for raw in 0x00_u8..=0x10 {
+            let v = CtlFunction::from_byte(raw).expect("from_byte");
+            assert_eq!(v.to_byte(), raw, "to_byte mismatch for 0x{raw:02X}");
+        }
+        assert!(CtlFunction::from_byte(0x11).is_none());
     }
 
     #[test]
