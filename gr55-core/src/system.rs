@@ -243,6 +243,40 @@ pub const ADDR_EXP_ON_CHORUS_MAX: [u8; 4] = [0x02, 0x02, 0x3A, 0x00];
 pub const ADDR_EXP_ON_MOD_CONTROL_A: [u8; 4] = [0x02, 0x02, 0x7B, 0x00];
 pub const ADDR_EXP_ON_MOD_CONTROL_B: [u8; 4] = [0x02, 0x02, 0x7C, 0x00];
 
+// EXP Pedal SWITCH sub-fields (Tone Sw action; midi.xml:3356-3423).
+pub const ADDR_EXP_SW_TONE_SW_OFF_PCM_1: [u8; 4] = [0x02, 0x02, 0x40, 0x00];
+pub const ADDR_EXP_SW_TONE_SW_OFF_PCM_2: [u8; 4] = [0x02, 0x02, 0x41, 0x00];
+pub const ADDR_EXP_SW_TONE_SW_OFF_MODELING: [u8; 4] = [0x02, 0x02, 0x42, 0x00];
+pub const ADDR_EXP_SW_TONE_SW_OFF_NORMAL_PU: [u8; 4] = [0x02, 0x02, 0x43, 0x00];
+pub const ADDR_EXP_SW_TONE_SW_ON_PCM_1: [u8; 4] = [0x02, 0x02, 0x44, 0x00];
+pub const ADDR_EXP_SW_TONE_SW_ON_PCM_2: [u8; 4] = [0x02, 0x02, 0x45, 0x00];
+pub const ADDR_EXP_SW_TONE_SW_ON_MODELING: [u8; 4] = [0x02, 0x02, 0x46, 0x00];
+pub const ADDR_EXP_SW_TONE_SW_ON_NORMAL_PU: [u8; 4] = [0x02, 0x02, 0x47, 0x00];
+
+// GK Switch 1/2 Function discriminators + Tone Sw sub-fields (midi.xml:3484-3600).
+pub const ADDR_GK_S1_FUNCTION: [u8; 4] = [0x02, 0x02, 0x5F, 0x00];
+pub const ADDR_GK_S1_TONE_SW_OFF_PCM_1: [u8; 4] = [0x02, 0x02, 0x64, 0x00];
+pub const ADDR_GK_S1_TONE_SW_OFF_PCM_2: [u8; 4] = [0x02, 0x02, 0x65, 0x00];
+pub const ADDR_GK_S1_TONE_SW_OFF_MODELING: [u8; 4] = [0x02, 0x02, 0x66, 0x00];
+pub const ADDR_GK_S1_TONE_SW_OFF_NORMAL_PU: [u8; 4] = [0x02, 0x02, 0x67, 0x00];
+pub const ADDR_GK_S1_TONE_SW_ON_PCM_1: [u8; 4] = [0x02, 0x02, 0x68, 0x00];
+pub const ADDR_GK_S1_TONE_SW_ON_PCM_2: [u8; 4] = [0x02, 0x02, 0x69, 0x00];
+pub const ADDR_GK_S1_TONE_SW_ON_MODELING: [u8; 4] = [0x02, 0x02, 0x6A, 0x00];
+pub const ADDR_GK_S1_TONE_SW_ON_NORMAL_PU: [u8; 4] = [0x02, 0x02, 0x6B, 0x00];
+pub const ADDR_GK_S2_FUNCTION: [u8; 4] = [0x02, 0x02, 0x6C, 0x00];
+pub const ADDR_GK_S2_TONE_SW_OFF_PCM_1: [u8; 4] = [0x02, 0x02, 0x71, 0x00];
+pub const ADDR_GK_S2_TONE_SW_OFF_PCM_2: [u8; 4] = [0x02, 0x02, 0x72, 0x00];
+pub const ADDR_GK_S2_TONE_SW_OFF_MODELING: [u8; 4] = [0x02, 0x02, 0x73, 0x00];
+pub const ADDR_GK_S2_TONE_SW_OFF_NORMAL_PU: [u8; 4] = [0x02, 0x02, 0x74, 0x00];
+pub const ADDR_GK_S2_TONE_SW_ON_PCM_1: [u8; 4] = [0x02, 0x02, 0x75, 0x00];
+pub const ADDR_GK_S2_TONE_SW_ON_PCM_2: [u8; 4] = [0x02, 0x02, 0x76, 0x00];
+pub const ADDR_GK_S2_TONE_SW_ON_MODELING: [u8; 4] = [0x02, 0x02, 0x77, 0x00];
+pub const ADDR_GK_S2_TONE_SW_ON_NORMAL_PU: [u8; 4] = [0x02, 0x02, 0x78, 0x00];
+
+/// GK VOL pedal Mod Control min/max (0..=120 per midi.xml).
+pub const ADDR_VOL_MOD_CONTROL_A: [u8; 4] = [0x02, 0x02, 0x7D, 0x00];
+pub const ADDR_VOL_MOD_CONTROL_B: [u8; 4] = [0x02, 0x02, 0x7E, 0x00];
+
 /// CTL Pedal Function selector (page 2). 22 enum values; chosen function
 /// determines which sub-fields at `[02, 02, 0x01..0x0C]` are active.
 pub const ADDR_CTL_PEDAL_FUNCTION: [u8; 4] = [0x02, 0x02, 0x00, 0x00];
@@ -1288,6 +1322,70 @@ pub struct SystemArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exp_on_mod_control_b: Option<u8>,
 
+    // ---- EXP Pedal SWITCH Tone-Sw sub-parameters ----
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_off_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_off_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_off_modeling: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_off_normal_pu: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_on_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_on_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_on_modeling: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_sw_tone_sw_on_normal_pu: Option<OnOff>,
+
+    // ---- GK S1 / GK S2 footswitch discriminators + Tone-Sw sub-fields ----
+    /// GK S1 footswitch function (same 21-variant enum as EXP SWITCH).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_function: Option<ExpPedalSwitchFunction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_off_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_off_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_off_modeling: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_off_normal_pu: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_on_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_on_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_on_modeling: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s1_tone_sw_on_normal_pu: Option<OnOff>,
+    /// GK S2 footswitch function (same 21-variant enum as EXP SWITCH).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_function: Option<ExpPedalSwitchFunction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_off_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_off_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_off_modeling: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_off_normal_pu: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_on_pcm_1: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_on_pcm_2: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_on_modeling: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_s2_tone_sw_on_normal_pu: Option<OnOff>,
+
+    /// GK VOL pedal Mod Control min (0..=120 range per midi.xml).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vol_mod_control_a: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vol_mod_control_b: Option<u8>,
+
     /// Every System-area byte not yet promoted to a typed field, keyed by its
     /// full 4-byte wire address. Preserves round-trip and surfaces unknowns to
     /// callers (e.g. `gr55 show` can list them).
@@ -1470,6 +1568,61 @@ impl SystemArea {
         out.exp_on_chorus_max = take(&mut bytes, ADDR_EXP_ON_CHORUS_MAX);
         out.exp_on_mod_control_a = take(&mut bytes, ADDR_EXP_ON_MOD_CONTROL_A);
         out.exp_on_mod_control_b = take(&mut bytes, ADDR_EXP_ON_MOD_CONTROL_B);
+
+        out.exp_sw_tone_sw_off_pcm_1 =
+            take(&mut bytes, ADDR_EXP_SW_TONE_SW_OFF_PCM_1).and_then(OnOff::from_byte);
+        out.exp_sw_tone_sw_off_pcm_2 =
+            take(&mut bytes, ADDR_EXP_SW_TONE_SW_OFF_PCM_2).and_then(OnOff::from_byte);
+        out.exp_sw_tone_sw_off_modeling =
+            take(&mut bytes, ADDR_EXP_SW_TONE_SW_OFF_MODELING).and_then(OnOff::from_byte);
+        out.exp_sw_tone_sw_off_normal_pu =
+            take(&mut bytes, ADDR_EXP_SW_TONE_SW_OFF_NORMAL_PU).and_then(OnOff::from_byte);
+        out.exp_sw_tone_sw_on_pcm_1 =
+            take(&mut bytes, ADDR_EXP_SW_TONE_SW_ON_PCM_1).and_then(OnOff::from_byte);
+        out.exp_sw_tone_sw_on_pcm_2 =
+            take(&mut bytes, ADDR_EXP_SW_TONE_SW_ON_PCM_2).and_then(OnOff::from_byte);
+        out.exp_sw_tone_sw_on_modeling =
+            take(&mut bytes, ADDR_EXP_SW_TONE_SW_ON_MODELING).and_then(OnOff::from_byte);
+        out.exp_sw_tone_sw_on_normal_pu =
+            take(&mut bytes, ADDR_EXP_SW_TONE_SW_ON_NORMAL_PU).and_then(OnOff::from_byte);
+        out.gk_s1_function =
+            take(&mut bytes, ADDR_GK_S1_FUNCTION).and_then(ExpPedalSwitchFunction::from_byte);
+        out.gk_s1_tone_sw_off_pcm_1 =
+            take(&mut bytes, ADDR_GK_S1_TONE_SW_OFF_PCM_1).and_then(OnOff::from_byte);
+        out.gk_s1_tone_sw_off_pcm_2 =
+            take(&mut bytes, ADDR_GK_S1_TONE_SW_OFF_PCM_2).and_then(OnOff::from_byte);
+        out.gk_s1_tone_sw_off_modeling =
+            take(&mut bytes, ADDR_GK_S1_TONE_SW_OFF_MODELING).and_then(OnOff::from_byte);
+        out.gk_s1_tone_sw_off_normal_pu =
+            take(&mut bytes, ADDR_GK_S1_TONE_SW_OFF_NORMAL_PU).and_then(OnOff::from_byte);
+        out.gk_s1_tone_sw_on_pcm_1 =
+            take(&mut bytes, ADDR_GK_S1_TONE_SW_ON_PCM_1).and_then(OnOff::from_byte);
+        out.gk_s1_tone_sw_on_pcm_2 =
+            take(&mut bytes, ADDR_GK_S1_TONE_SW_ON_PCM_2).and_then(OnOff::from_byte);
+        out.gk_s1_tone_sw_on_modeling =
+            take(&mut bytes, ADDR_GK_S1_TONE_SW_ON_MODELING).and_then(OnOff::from_byte);
+        out.gk_s1_tone_sw_on_normal_pu =
+            take(&mut bytes, ADDR_GK_S1_TONE_SW_ON_NORMAL_PU).and_then(OnOff::from_byte);
+        out.gk_s2_function =
+            take(&mut bytes, ADDR_GK_S2_FUNCTION).and_then(ExpPedalSwitchFunction::from_byte);
+        out.gk_s2_tone_sw_off_pcm_1 =
+            take(&mut bytes, ADDR_GK_S2_TONE_SW_OFF_PCM_1).and_then(OnOff::from_byte);
+        out.gk_s2_tone_sw_off_pcm_2 =
+            take(&mut bytes, ADDR_GK_S2_TONE_SW_OFF_PCM_2).and_then(OnOff::from_byte);
+        out.gk_s2_tone_sw_off_modeling =
+            take(&mut bytes, ADDR_GK_S2_TONE_SW_OFF_MODELING).and_then(OnOff::from_byte);
+        out.gk_s2_tone_sw_off_normal_pu =
+            take(&mut bytes, ADDR_GK_S2_TONE_SW_OFF_NORMAL_PU).and_then(OnOff::from_byte);
+        out.gk_s2_tone_sw_on_pcm_1 =
+            take(&mut bytes, ADDR_GK_S2_TONE_SW_ON_PCM_1).and_then(OnOff::from_byte);
+        out.gk_s2_tone_sw_on_pcm_2 =
+            take(&mut bytes, ADDR_GK_S2_TONE_SW_ON_PCM_2).and_then(OnOff::from_byte);
+        out.gk_s2_tone_sw_on_modeling =
+            take(&mut bytes, ADDR_GK_S2_TONE_SW_ON_MODELING).and_then(OnOff::from_byte);
+        out.gk_s2_tone_sw_on_normal_pu =
+            take(&mut bytes, ADDR_GK_S2_TONE_SW_ON_NORMAL_PU).and_then(OnOff::from_byte);
+        out.vol_mod_control_a = take(&mut bytes, ADDR_VOL_MOD_CONTROL_A);
+        out.vol_mod_control_b = take(&mut bytes, ADDR_VOL_MOD_CONTROL_B);
 
         out.gk_set_select = take(&mut bytes, ADDR_GK_SET_SELECT);
         out.guitar_out = take(&mut bytes, ADDR_GUITAR_OUT);
@@ -1691,6 +1844,66 @@ impl SystemArea {
             ),
             (ADDR_EXP_ON_MOD_PCM_1, self.exp_on_mod_pcm_1),
             (ADDR_EXP_ON_MOD_PCM_2, self.exp_on_mod_pcm_2),
+            (ADDR_EXP_SW_TONE_SW_OFF_PCM_1, self.exp_sw_tone_sw_off_pcm_1),
+            (ADDR_EXP_SW_TONE_SW_OFF_PCM_2, self.exp_sw_tone_sw_off_pcm_2),
+            (
+                ADDR_EXP_SW_TONE_SW_OFF_MODELING,
+                self.exp_sw_tone_sw_off_modeling,
+            ),
+            (
+                ADDR_EXP_SW_TONE_SW_OFF_NORMAL_PU,
+                self.exp_sw_tone_sw_off_normal_pu,
+            ),
+            (ADDR_EXP_SW_TONE_SW_ON_PCM_1, self.exp_sw_tone_sw_on_pcm_1),
+            (ADDR_EXP_SW_TONE_SW_ON_PCM_2, self.exp_sw_tone_sw_on_pcm_2),
+            (
+                ADDR_EXP_SW_TONE_SW_ON_MODELING,
+                self.exp_sw_tone_sw_on_modeling,
+            ),
+            (
+                ADDR_EXP_SW_TONE_SW_ON_NORMAL_PU,
+                self.exp_sw_tone_sw_on_normal_pu,
+            ),
+            (ADDR_GK_S1_TONE_SW_OFF_PCM_1, self.gk_s1_tone_sw_off_pcm_1),
+            (ADDR_GK_S1_TONE_SW_OFF_PCM_2, self.gk_s1_tone_sw_off_pcm_2),
+            (
+                ADDR_GK_S1_TONE_SW_OFF_MODELING,
+                self.gk_s1_tone_sw_off_modeling,
+            ),
+            (
+                ADDR_GK_S1_TONE_SW_OFF_NORMAL_PU,
+                self.gk_s1_tone_sw_off_normal_pu,
+            ),
+            (ADDR_GK_S1_TONE_SW_ON_PCM_1, self.gk_s1_tone_sw_on_pcm_1),
+            (ADDR_GK_S1_TONE_SW_ON_PCM_2, self.gk_s1_tone_sw_on_pcm_2),
+            (
+                ADDR_GK_S1_TONE_SW_ON_MODELING,
+                self.gk_s1_tone_sw_on_modeling,
+            ),
+            (
+                ADDR_GK_S1_TONE_SW_ON_NORMAL_PU,
+                self.gk_s1_tone_sw_on_normal_pu,
+            ),
+            (ADDR_GK_S2_TONE_SW_OFF_PCM_1, self.gk_s2_tone_sw_off_pcm_1),
+            (ADDR_GK_S2_TONE_SW_OFF_PCM_2, self.gk_s2_tone_sw_off_pcm_2),
+            (
+                ADDR_GK_S2_TONE_SW_OFF_MODELING,
+                self.gk_s2_tone_sw_off_modeling,
+            ),
+            (
+                ADDR_GK_S2_TONE_SW_OFF_NORMAL_PU,
+                self.gk_s2_tone_sw_off_normal_pu,
+            ),
+            (ADDR_GK_S2_TONE_SW_ON_PCM_1, self.gk_s2_tone_sw_on_pcm_1),
+            (ADDR_GK_S2_TONE_SW_ON_PCM_2, self.gk_s2_tone_sw_on_pcm_2),
+            (
+                ADDR_GK_S2_TONE_SW_ON_MODELING,
+                self.gk_s2_tone_sw_on_modeling,
+            ),
+            (
+                ADDR_GK_S2_TONE_SW_ON_NORMAL_PU,
+                self.gk_s2_tone_sw_on_normal_pu,
+            ),
         ] {
             if let Some(v) = value {
                 bytes.insert(addr, v.to_byte());
@@ -1701,6 +1914,12 @@ impl SystemArea {
         }
         if let Some(v) = self.exp_on_pitch_bend_depth {
             bytes.insert(ADDR_EXP_ON_PITCH_BEND_DEPTH, v.to_byte());
+        }
+        if let Some(v) = self.gk_s1_function {
+            bytes.insert(ADDR_GK_S1_FUNCTION, v.to_byte());
+        }
+        if let Some(v) = self.gk_s2_function {
+            bytes.insert(ADDR_GK_S2_FUNCTION, v.to_byte());
         }
         for (addr, value) in [
             (ADDR_EXP_OFF_MOD_MIN, self.exp_off_mod_min),
@@ -1731,6 +1950,8 @@ impl SystemArea {
             (ADDR_EXP_ON_CHORUS_MAX, self.exp_on_chorus_max),
             (ADDR_EXP_ON_MOD_CONTROL_A, self.exp_on_mod_control_a),
             (ADDR_EXP_ON_MOD_CONTROL_B, self.exp_on_mod_control_b),
+            (ADDR_VOL_MOD_CONTROL_A, self.vol_mod_control_a),
+            (ADDR_VOL_MOD_CONTROL_B, self.vol_mod_control_b),
         ] {
             if let Some(v) = value {
                 bytes.insert(addr, v);
@@ -1998,6 +2219,34 @@ mod tests {
             exp_on_chorus_max: Some(0x45),
             exp_on_mod_control_a: Some(0x35),
             exp_on_mod_control_b: Some(0x55),
+            exp_sw_tone_sw_off_pcm_1: Some(OnOff::On),
+            exp_sw_tone_sw_off_pcm_2: Some(OnOff::Off),
+            exp_sw_tone_sw_off_modeling: Some(OnOff::On),
+            exp_sw_tone_sw_off_normal_pu: Some(OnOff::Off),
+            exp_sw_tone_sw_on_pcm_1: Some(OnOff::Off),
+            exp_sw_tone_sw_on_pcm_2: Some(OnOff::On),
+            exp_sw_tone_sw_on_modeling: Some(OnOff::Off),
+            exp_sw_tone_sw_on_normal_pu: Some(OnOff::On),
+            gk_s1_function: Some(ExpPedalSwitchFunction::DelaySw),
+            gk_s1_tone_sw_off_pcm_1: Some(OnOff::On),
+            gk_s1_tone_sw_off_pcm_2: Some(OnOff::Off),
+            gk_s1_tone_sw_off_modeling: Some(OnOff::On),
+            gk_s1_tone_sw_off_normal_pu: Some(OnOff::Off),
+            gk_s1_tone_sw_on_pcm_1: Some(OnOff::Off),
+            gk_s1_tone_sw_on_pcm_2: Some(OnOff::On),
+            gk_s1_tone_sw_on_modeling: Some(OnOff::Off),
+            gk_s1_tone_sw_on_normal_pu: Some(OnOff::On),
+            gk_s2_function: Some(ExpPedalSwitchFunction::ReverbSw),
+            gk_s2_tone_sw_off_pcm_1: Some(OnOff::Off),
+            gk_s2_tone_sw_off_pcm_2: Some(OnOff::On),
+            gk_s2_tone_sw_off_modeling: Some(OnOff::Off),
+            gk_s2_tone_sw_off_normal_pu: Some(OnOff::On),
+            gk_s2_tone_sw_on_pcm_1: Some(OnOff::On),
+            gk_s2_tone_sw_on_pcm_2: Some(OnOff::Off),
+            gk_s2_tone_sw_on_modeling: Some(OnOff::On),
+            gk_s2_tone_sw_on_normal_pu: Some(OnOff::Off),
+            vol_mod_control_a: Some(0x30),
+            vol_mod_control_b: Some(0x70),
             unknown_bytes: BTreeMap::new(),
         };
         let frames = area.to_frames(0x10).unwrap();
