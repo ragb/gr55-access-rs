@@ -1,15 +1,17 @@
 //! Typed GR-55 System Area model.
 //!
-//! v1 covers the confidently-modeled parameters at MSB `0x02` page 1, offsets
-//! 0x00..=0x0D (GK Set, Output Select, Assign Hold, MIDI Channel, PC RX/TX
-//! switches, V-Link channel, Guitar MIDI Out, MIDI Out Mode, Chromatic, String
-//! Channel, Data Thin, CTL/EXP pedal CC#), plus the first byte of the Current
-//! Patch parameter at MSB `0x01`. Every other addressable byte present in a
-//! parsed System dump is preserved verbatim in `unknown_bytes` so round-trip is
-//! lossless even before each field gets a typed accessor.
+//! Coverage of MSB `0x02` page 0 (the System menu page in FloorBoard) is now
+//! complete except for the three multi-byte audio levels at offsets `0x1B`
+//! (Audio Player level), `0x1D` (USB Audio In), `0x1F` (USB Audio Out), which
+//! all share a 2-byte 0..=200 encoding that hasn't been verified against
+//! hardware. Those bytes land in `unknown_bytes` for now, preserving lossless
+//! round-trip.
 //!
-//! Source of truth for offsets: `data/midi.xml` `<System>` section, surfaced as
-//! `gr55_core::midi_map::SYSTEM_PARAMETERS`.
+//! Cross-references:
+//! - **Field list**: FloorBoard's `menuPage_system.cpp`. The `(hex1, hex2,
+//!   hex3)` triplet on each `addComboBox` / `addKnob` call is the wire address.
+//! - **Per-field semantics**: `data/midi.xml` `<System>` section, exposed via
+//!   `gr55_core::midi_map::SYSTEM_PARAMETERS`.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -50,6 +52,26 @@ pub const ADDR_DATA_THIN: [u8; 4] = [0x02, 0x00, 0x00, 0x0B];
 pub const ADDR_CTL_PEDAL_CC: [u8; 4] = [0x02, 0x00, 0x00, 0x0C];
 /// Address of EXP pedal CC# assignment.
 pub const ADDR_EXP_PEDAL_CC: [u8; 4] = [0x02, 0x00, 0x00, 0x0D];
+/// Address of EXP pedal Bend range (-24..=+24 semitones).
+pub const ADDR_EXP_PEDAL_BEND: [u8; 4] = [0x02, 0x00, 0x00, 0x0E];
+/// Address of GK VOL CC# assignment.
+pub const ADDR_GK_VOL_CC: [u8; 4] = [0x02, 0x00, 0x00, 0x0F];
+/// Address of GK S1 CC# assignment.
+pub const ADDR_GK_S1_CC: [u8; 4] = [0x02, 0x00, 0x00, 0x10];
+/// Address of GK S2 CC# assignment.
+pub const ADDR_GK_S2_CC: [u8; 4] = [0x02, 0x00, 0x00, 0x11];
+/// Address of MIDI Map (Default Fixed / Programmable).
+pub const ADDR_MIDI_MAP: [u8; 4] = [0x02, 0x00, 0x00, 0x12];
+/// Address of Monitor Direct (Off / On).
+pub const ADDR_MONITOR_DIRECT: [u8; 4] = [0x02, 0x00, 0x00, 0x15];
+/// Address of Guitar Out Source.
+pub const ADDR_GUITAR_OUT_SOURCE: [u8; 4] = [0x02, 0x00, 0x00, 0x16];
+/// Address of Master Tune (435..=445 Hz).
+pub const ADDR_MASTER_TUNE: [u8; 4] = [0x02, 0x00, 0x00, 0x17];
+/// Address of Tuner Mute (Off / On).
+pub const ADDR_TUNER_MUTE: [u8; 4] = [0x02, 0x00, 0x00, 0x18];
+/// Address of Startup Mode (Guitar / Bass).
+pub const ADDR_STARTUP_MODE: [u8; 4] = [0x02, 0x00, 0x00, 0x1A];
 
 /// Reusable Off/On.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -270,6 +292,144 @@ impl PedalCc {
     }
 }
 
+/// EXP pedal bend range in semitones (-24..=+24). Wire encoding adds 24
+/// to land in the unsigned `0x00..=0x30` range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ExpPedalBend(i8);
+
+impl ExpPedalBend {
+    pub fn new(semitones: i8) -> Option<Self> {
+        if (-24..=24).contains(&semitones) {
+            Some(ExpPedalBend(semitones))
+        } else {
+            None
+        }
+    }
+    pub fn get(self) -> i8 {
+        self.0
+    }
+    fn from_byte(b: u8) -> Option<Self> {
+        if b <= 0x30 {
+            Some(ExpPedalBend((b as i8) - 24))
+        } else {
+            None
+        }
+    }
+    fn to_byte(self) -> u8 {
+        (self.0 + 24) as u8
+    }
+}
+
+/// MIDI Map mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MidiMap {
+    DefaultFixed,
+    Programmable,
+}
+
+impl MidiMap {
+    fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0 => Some(MidiMap::DefaultFixed),
+            1 => Some(MidiMap::Programmable),
+            _ => None,
+        }
+    }
+    fn to_byte(self) -> u8 {
+        match self {
+            MidiMap::DefaultFixed => 0,
+            MidiMap::Programmable => 1,
+        }
+    }
+}
+
+/// Source feeding the GR-55's Guitar Out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GuitarOutSource {
+    Patch,
+    Off,
+    NormalPickup,
+    Modeling,
+    Both,
+}
+
+impl GuitarOutSource {
+    fn from_byte(b: u8) -> Option<Self> {
+        Some(match b {
+            0 => GuitarOutSource::Patch,
+            1 => GuitarOutSource::Off,
+            2 => GuitarOutSource::NormalPickup,
+            3 => GuitarOutSource::Modeling,
+            4 => GuitarOutSource::Both,
+            _ => return None,
+        })
+    }
+    fn to_byte(self) -> u8 {
+        match self {
+            GuitarOutSource::Patch => 0,
+            GuitarOutSource::Off => 1,
+            GuitarOutSource::NormalPickup => 2,
+            GuitarOutSource::Modeling => 3,
+            GuitarOutSource::Both => 4,
+        }
+    }
+}
+
+/// Master tune in Hz (435..=445). Wire encoding: 0 = 435 Hz, 10 = 445 Hz.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct MasterTuneHz(u16);
+
+impl MasterTuneHz {
+    pub fn new(hz: u16) -> Option<Self> {
+        if (435..=445).contains(&hz) {
+            Some(MasterTuneHz(hz))
+        } else {
+            None
+        }
+    }
+    pub fn get(self) -> u16 {
+        self.0
+    }
+    fn from_byte(b: u8) -> Option<Self> {
+        if b <= 10 {
+            Some(MasterTuneHz(435 + u16::from(b)))
+        } else {
+            None
+        }
+    }
+    fn to_byte(self) -> u8 {
+        (self.0 - 435) as u8
+    }
+}
+
+/// Guitar/Bass mode (same enum as patch byte 0; reused for system Startup Mode).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    Guitar,
+    Bass,
+}
+
+impl Mode {
+    fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0 => Some(Mode::Guitar),
+            1 => Some(Mode::Bass),
+            _ => None,
+        }
+    }
+    fn to_byte(self) -> u8 {
+        match self {
+            Mode::Guitar => 0,
+            Mode::Bass => 1,
+        }
+    }
+}
+
 /// Typed view of the GR-55's System area state.
 ///
 /// `unknown_bytes` captures every address that landed in the dump but isn't
@@ -298,6 +458,16 @@ pub struct SystemArea {
     pub data_thin: Option<OnOff>,
     pub ctl_pedal_cc: Option<PedalCc>,
     pub exp_pedal_cc: Option<PedalCc>,
+    pub exp_pedal_bend: Option<ExpPedalBend>,
+    pub gk_vol_cc: Option<PedalCc>,
+    pub gk_s1_cc: Option<PedalCc>,
+    pub gk_s2_cc: Option<PedalCc>,
+    pub midi_map: Option<MidiMap>,
+    pub monitor_direct: Option<OnOff>,
+    pub guitar_out_source: Option<GuitarOutSource>,
+    pub master_tune: Option<MasterTuneHz>,
+    pub tuner_mute: Option<OnOff>,
+    pub startup_mode: Option<Mode>,
 
     /// Every System-area byte not yet promoted to a typed field, keyed by its
     /// full 4-byte wire address. Preserves round-trip and surfaces unknowns to
@@ -353,6 +523,18 @@ impl SystemArea {
         out.data_thin = take(&mut bytes, ADDR_DATA_THIN).and_then(OnOff::from_byte);
         out.ctl_pedal_cc = take(&mut bytes, ADDR_CTL_PEDAL_CC).and_then(PedalCc::from_byte);
         out.exp_pedal_cc = take(&mut bytes, ADDR_EXP_PEDAL_CC).and_then(PedalCc::from_byte);
+        out.exp_pedal_bend =
+            take(&mut bytes, ADDR_EXP_PEDAL_BEND).and_then(ExpPedalBend::from_byte);
+        out.gk_vol_cc = take(&mut bytes, ADDR_GK_VOL_CC).and_then(PedalCc::from_byte);
+        out.gk_s1_cc = take(&mut bytes, ADDR_GK_S1_CC).and_then(PedalCc::from_byte);
+        out.gk_s2_cc = take(&mut bytes, ADDR_GK_S2_CC).and_then(PedalCc::from_byte);
+        out.midi_map = take(&mut bytes, ADDR_MIDI_MAP).and_then(MidiMap::from_byte);
+        out.monitor_direct = take(&mut bytes, ADDR_MONITOR_DIRECT).and_then(OnOff::from_byte);
+        out.guitar_out_source =
+            take(&mut bytes, ADDR_GUITAR_OUT_SOURCE).and_then(GuitarOutSource::from_byte);
+        out.master_tune = take(&mut bytes, ADDR_MASTER_TUNE).and_then(MasterTuneHz::from_byte);
+        out.tuner_mute = take(&mut bytes, ADDR_TUNER_MUTE).and_then(OnOff::from_byte);
+        out.startup_mode = take(&mut bytes, ADDR_STARTUP_MODE).and_then(Mode::from_byte);
 
         out.unknown_bytes = bytes
             .into_iter()
@@ -424,6 +606,41 @@ impl SystemArea {
             };
             let byte = v.to_byte().ok_or(CodecError::PedalCcOutOfRange(raw))?;
             bytes.insert(ADDR_EXP_PEDAL_CC, byte);
+        }
+        if let Some(v) = self.exp_pedal_bend {
+            bytes.insert(ADDR_EXP_PEDAL_BEND, v.to_byte());
+        }
+        for (addr, value) in [
+            (ADDR_GK_VOL_CC, self.gk_vol_cc),
+            (ADDR_GK_S1_CC, self.gk_s1_cc),
+            (ADDR_GK_S2_CC, self.gk_s2_cc),
+        ] {
+            if let Some(v) = value {
+                let raw = match v {
+                    PedalCc::Cc(n) => n,
+                    PedalCc::Off => 0,
+                };
+                let byte = v.to_byte().ok_or(CodecError::PedalCcOutOfRange(raw))?;
+                bytes.insert(addr, byte);
+            }
+        }
+        if let Some(v) = self.midi_map {
+            bytes.insert(ADDR_MIDI_MAP, v.to_byte());
+        }
+        if let Some(v) = self.monitor_direct {
+            bytes.insert(ADDR_MONITOR_DIRECT, v.to_byte());
+        }
+        if let Some(v) = self.guitar_out_source {
+            bytes.insert(ADDR_GUITAR_OUT_SOURCE, v.to_byte());
+        }
+        if let Some(v) = self.master_tune {
+            bytes.insert(ADDR_MASTER_TUNE, v.to_byte());
+        }
+        if let Some(v) = self.tuner_mute {
+            bytes.insert(ADDR_TUNER_MUTE, v.to_byte());
+        }
+        if let Some(v) = self.startup_mode {
+            bytes.insert(ADDR_STARTUP_MODE, v.to_byte());
         }
         for (k, b) in &self.unknown_bytes {
             let addr = parse_addr(k).ok_or_else(|| CodecError::BadStoredAddress(k.clone()))?;
@@ -512,11 +729,56 @@ mod tests {
             data_thin: Some(OnOff::On),
             ctl_pedal_cc: Some(PedalCc::Cc(7)),
             exp_pedal_cc: Some(PedalCc::Cc(64)),
+            exp_pedal_bend: Some(ExpPedalBend::new(-12).unwrap()),
+            gk_vol_cc: Some(PedalCc::Cc(11)),
+            gk_s1_cc: Some(PedalCc::Off),
+            gk_s2_cc: Some(PedalCc::Cc(80)),
+            midi_map: Some(MidiMap::Programmable),
+            monitor_direct: Some(OnOff::On),
+            guitar_out_source: Some(GuitarOutSource::Modeling),
+            master_tune: Some(MasterTuneHz::new(442).unwrap()),
+            tuner_mute: Some(OnOff::Off),
+            startup_mode: Some(Mode::Bass),
             unknown_bytes: BTreeMap::new(),
         };
         let frames = area.to_frames(0x10).unwrap();
         let back = SystemArea::from_frames(&frames);
         assert_eq!(back, area);
+    }
+
+    #[test]
+    fn exp_pedal_bend_handles_full_range() {
+        for s in -24..=24 {
+            let bend = ExpPedalBend::new(s).unwrap();
+            assert_eq!(bend.get(), s);
+            // Round-trip through byte
+            let area = SystemArea {
+                exp_pedal_bend: Some(bend),
+                ..SystemArea::default()
+            };
+            let frames = area.to_frames(0x10).unwrap();
+            let back = SystemArea::from_frames(&frames);
+            assert_eq!(back.exp_pedal_bend, Some(bend));
+        }
+        assert!(ExpPedalBend::new(-25).is_none());
+        assert!(ExpPedalBend::new(25).is_none());
+    }
+
+    #[test]
+    fn master_tune_covers_435_to_445_hz() {
+        for hz in 435..=445 {
+            let mt = MasterTuneHz::new(hz).unwrap();
+            assert_eq!(mt.get(), hz);
+            let area = SystemArea {
+                master_tune: Some(mt),
+                ..SystemArea::default()
+            };
+            let frames = area.to_frames(0x10).unwrap();
+            let back = SystemArea::from_frames(&frames);
+            assert_eq!(back.master_tune, Some(mt));
+        }
+        assert!(MasterTuneHz::new(434).is_none());
+        assert!(MasterTuneHz::new(446).is_none());
     }
 
     #[test]

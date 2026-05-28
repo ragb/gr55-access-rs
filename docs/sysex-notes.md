@@ -16,6 +16,8 @@ For each claim, **provenance** is one of:
 |--------|---------------|-------|
 | GR-55 FloorBoard `midi.xml` | `gr55-core/data/midi.xml` (vendored, UTF-8) | Address map source of truth. UTF-16 original at `docs/spec/floorboard_src/gr55floorboard_source/midi.xml`. Actively maintained (snapshot dated 2025-08-28). |
 | GR-55 FloorBoard `midi.xsd` | `gr55-core/data/midi.xsd` | Schema for `midi.xml`. Defines the `<SysX>` document layout (`<Header>`, `<Address>`, `<System>`, `<Structure>`, `<Footer>`, `<Tables>`, `<MPT>`). |
+| FloorBoard `menuPage_system.cpp` | `docs/spec/floorboard_src/.../menuPage_system.cpp` | The UI wiring file for FloorBoard's System menu page. Each `addComboBox(...)` / `addKnob(...)` call carries the `(hex1, hex2, hex3)` wire-address triplet — the cleanest enumeration of every user-facing System parameter. Used to drive `gr55-core::system` field list. |
+| FloorBoard `menuPage_master.cpp` | `docs/spec/floorboard_src/.../menuPage_master.cpp` | Same pattern for Master settings (smaller). |
 | Roland GR-55 Owner's Manual | `docs/spec/gr55_owners_manual.pdf` (local, not committed) | 28 MB PDF. Has MIDI Implementation Chart and likely a detailed appendix (TODO: inspect). |
 | VController `MIDI_GR55.ino` | https://github.com/sixeight7/VController/blob/master/MIDI_GR55.ino | Hardware-tested third-party driver. Useful tiebreaker. |
 | FloorBoard `default.syx` / `system.syx` / `EZ-Tone.syx` | `gr55-core/tests/fixtures/floorboard_*.syx` | Wire-byte fixtures bundled with FloorBoard. Use for codec round-trip tests. |
