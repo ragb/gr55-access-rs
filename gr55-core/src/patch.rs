@@ -757,20 +757,14 @@ impl Assign {
         }
     }
 
-    /// Append this assign's bytes to the encode-side map. `base_lo` is the
-    /// lo byte of the assign's first address; `byte_in_assign` 0..=18 maps
-    /// to `base_lo..=base_lo+18` within the same page.
-    fn emit_bytes(
-        &self,
-        bytes: &mut BTreeMap<[u8; 4], u8>,
-        base_msb: u8,
-        page: u8,
-        base_lo: u8,
-    ) {
+    /// Append this assign's bytes to the encode-side map. `idx` is the
+    /// 0..=7 slot index; addresses are computed via `assign_address`,
+    /// which handles the page 0x01 → 0x02 boundary for Assigns 7 and 8.
+    fn emit_bytes(&self, bytes: &mut BTreeMap<[u8; 4], u8>, base_msb: u8, idx: usize) {
         macro_rules! put {
             ($off:expr, $val:expr) => {
                 if let Some(v) = $val {
-                    bytes.insert([base_msb, page, 0x00, base_lo + $off], v);
+                    bytes.insert(assign_address(base_msb, idx, $off), v);
                 }
             };
         }
@@ -798,6 +792,45 @@ impl Assign {
 
 fn all_assigns_none(arr: &[Option<Assign>; 8]) -> bool {
     arr.iter().all(Option::is_none)
+}
+
+/// Address of byte `byte_in_assign` (0..=18) of slot `idx` (0..=7).
+///
+/// All 8 Assigns occupy one contiguous 152-byte span. If we picture page
+/// `0x01` as the low half of a 256-byte virtual space (offsets 0..=0x7F)
+/// and page `0x02` as the high half (0x80..=0xFF), the flat starting
+/// offset of Assign N is `0x0C + N*19`, regardless of which physical
+/// page that lands on. Assign7 (idx 6) starts at flat offset `0x7E` —
+/// the last 2 bytes live on page `0x01`, the remaining 17 wrap to page
+/// `0x02` at offsets `0x00..=0x10`. Assign8 (idx 7) starts at flat
+/// offset `0x91`, which is page `0x02` offset `0x11`.
+fn assign_address(base_msb: u8, idx: usize, byte_in_assign: u8) -> [u8; 4] {
+    let flat = 0x0C_u16 + (idx as u16) * 19 + byte_in_assign as u16;
+    if flat < 0x80 {
+        [base_msb, 0x01, 0x00, flat as u8]
+    } else {
+        [base_msb, 0x02, 0x00, (flat - 0x80) as u8]
+    }
+}
+
+/// Inverse of [`assign_address`]: given a decoded frame's (page, hi, lo),
+/// return the (assign_index, byte_in_assign) pair that owns it — or
+/// `None` if the address falls outside the Master Assign span.
+fn assign_locate(page: u8, hi: u8, lo: u8) -> Option<(usize, u8)> {
+    if hi != 0 {
+        return None;
+    }
+    let flat = match page {
+        0x01 if (0x0C..=0x7F).contains(&lo) => lo as u16,
+        0x02 if lo <= 0x23 => lo as u16 + 0x80,
+        _ => return None,
+    };
+    let off = (flat - 0x0C) as usize;
+    let idx = off / 19;
+    if idx >= 8 {
+        return None;
+    }
+    Some((idx, (off % 19) as u8))
 }
 
 /// Typed view of a single GR-55 patch payload. MSB-agnostic — the caller
@@ -1304,11 +1337,11 @@ impl PatchArea {
             (0x01, 0x00, 0x09) => self.gk_s2_tone_sw_on_pcm_2 = OnOff::from_byte(b),
             (0x01, 0x00, 0x0A) => self.gk_s2_tone_sw_on_modeling = OnOff::from_byte(b),
             (0x01, 0x00, 0x0B) => self.gk_s2_tone_sw_on_normal_pu = OnOff::from_byte(b),
-            // Master Assigns 1-6 (page 0x01 offsets 0x0C..=0x7D).
-            (0x01, 0x00, lo) if (0x0C..=0x7D).contains(&lo) => {
-                let off = (lo - 0x0C) as usize;
-                let idx = off / 19;
-                let bia = (off % 19) as u8;
+            // Master Assigns 1-8 (page 0x01 offset 0x0C through page 0x02 offset 0x23).
+            // The 8 assigns occupy one contiguous 152-byte span; assign_locate
+            // maps any (page, hi, lo) inside that span to (assign_index, byte_in_assign).
+            (_, 0x00, _) if assign_locate(page, hi, lo).is_some() => {
+                let (idx, bia) = assign_locate(page, hi, lo).unwrap();
                 let assign = self.master_assigns[idx].get_or_insert_with(Assign::default);
                 if !assign.store_byte(bia, b) {
                     self.unknown_bytes.insert(format_key(page, hi, lo), b);
@@ -1670,11 +1703,10 @@ impl PatchArea {
         if let Some(v) = self.gk_s2_tone_sw_on_normal_pu {
             bytes.insert([base_msb, 0x01, 0x00, 0x0B], v.to_byte());
         }
-        // Master Assigns 1-6
-        for (idx, slot) in self.master_assigns[..6].iter().enumerate() {
+        // Master Assigns 1-8
+        for (idx, slot) in self.master_assigns.iter().enumerate() {
             if let Some(assign) = slot {
-                let base_lo = 0x0C_u8 + (idx as u8) * 19;
-                assign.emit_bytes(&mut bytes, base_msb, 0x01, base_lo);
+                assign.emit_bytes(&mut bytes, base_msb, idx);
             }
         }
         for (k, b) in &self.unknown_bytes {
@@ -2165,6 +2197,101 @@ mod tests {
         // Round-trip preserves every typed byte.
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
+    }
+
+    #[test]
+    fn master_assign_7_spans_page_boundary() {
+        // Assign7 starts at flat offset 0x0C + 6*19 = 0x7E (page 0x01).
+        // First 2 bytes land on page 0x01, remaining 17 wrap to page 0x02
+        // at offsets 0x00..=0x10. Send as two DT1 frames matching the
+        // natural wire convention.
+        let frames = vec![
+            Frame::Dt1 {
+                device_id: 0x10,
+                address: [TEMP_MSB, 0x01, 0x00, 0x7E],
+                data: Cow::Owned(vec![OnOff::On.to_byte(), 0x07]), // on_off, target
+            },
+            Frame::Dt1 {
+                device_id: 0x10,
+                address: [TEMP_MSB, 0x02, 0x00, 0x00],
+                data: Cow::Owned(vec![
+                    0x00, 0x00, // target_b, target_c
+                    0x02, 0x00, 0x00, // min, min_b, min_c
+                    0x0E, 0x00, 0x00, // max, max_b, max_c
+                    AssignSource::midi_cc(7).unwrap().to_byte(),  // source = CC#07
+                    AssignSourceMode::Moment.to_byte(),
+                    0x10, // range_low
+                    0x70, // range_high
+                    AssignInternalTrigger::CtrlPdl.to_byte(),
+                    0x20, // int_pdl_time
+                    AssignIntPdlCurve::FastRise.to_byte(),
+                    0x68, // wave_rate (half note)
+                    AssignWaveForm::Sine.to_byte(),
+                ]),
+            },
+        ];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+        let a7 = area.master_assigns[6]
+            .as_ref()
+            .expect("Assign7 should decode");
+        assert_eq!(a7.on_off, Some(OnOff::On));
+        assert_eq!(a7.target, Some(0x07));
+        assert_eq!(a7.min, Some(0x02));
+        assert_eq!(a7.max, Some(0x0E));
+        assert_eq!(a7.source, AssignSource::midi_cc(7));
+        assert_eq!(a7.source_mode, Some(AssignSourceMode::Moment));
+        assert_eq!(a7.range_low, Some(0x10));
+        assert_eq!(a7.range_high, Some(0x70));
+        assert_eq!(a7.internal_trigger, Some(AssignInternalTrigger::CtrlPdl));
+        assert_eq!(a7.int_pdl_time, Some(0x20));
+        assert_eq!(a7.int_pdl_curve, Some(AssignIntPdlCurve::FastRise));
+        assert_eq!(a7.wave_rate, Some(0x68));
+        assert_eq!(a7.wave_form, Some(AssignWaveForm::Sine));
+        // No other slots populated.
+        for i in [0, 1, 2, 3, 4, 5, 7] {
+            assert!(area.master_assigns[i].is_none(), "slot {i} should be None");
+        }
+        assert!(area.unknown_bytes.is_empty());
+
+        // Round-trip preserves the page split.
+        let back_frames = area.to_frames(0x10, TEMP_MSB).unwrap();
+        // Verify the encoded addresses really do span both pages.
+        let mut saw_page1 = false;
+        let mut saw_page2 = false;
+        for f in &back_frames {
+            if let Frame::Dt1 { address, .. } = f {
+                if address[1] == 0x01 && address[3] >= 0x7E {
+                    saw_page1 = true;
+                }
+                if address[1] == 0x02 && address[3] <= 0x10 {
+                    saw_page2 = true;
+                }
+            }
+        }
+        assert!(saw_page1, "expected encoded bytes on page 0x01 0x7E/0x7F");
+        assert!(saw_page2, "expected encoded bytes on page 0x02 0x00..=0x10");
+
+        let round = PatchArea::from_frames_at(&back_frames, TEMP_MSB);
+        assert_eq!(round, area);
+    }
+
+    #[test]
+    fn master_assign_8_lives_on_page_02() {
+        // Assign8 starts at flat offset 0x0C + 7*19 = 0x91 = page 0x02 0x11.
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x02, 0x00, 0x11],
+            data: Cow::Owned(vec![OnOff::On.to_byte()]),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+        assert!(area.master_assigns[7].is_some());
+        assert_eq!(
+            area.master_assigns[7].as_ref().unwrap().on_off,
+            Some(OnOff::On)
+        );
+        for i in 0..7 {
+            assert!(area.master_assigns[i].is_none());
+        }
     }
 
     #[test]
