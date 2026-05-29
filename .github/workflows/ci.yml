@@ -33,6 +33,10 @@ jobs:
 
   wasm:
     runs-on: ubuntu-latest
+    permissions:
+      # Required so `softprops/action-gh-release@v2` can create a release
+      # on `v*` tags (the default GITHUB_TOKEN is read-only).
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
