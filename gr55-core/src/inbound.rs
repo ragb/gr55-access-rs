@@ -40,6 +40,7 @@ pub enum InboundMessage {
     Dt1 {
         device_id: u8,
         address: [u8; 4],
+        #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
         data: Vec<u8>,
     },
     /// Roland RQ1 (data request) frame. Unusual as an inbound message

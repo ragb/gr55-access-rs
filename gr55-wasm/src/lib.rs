@@ -338,6 +338,19 @@ pub fn classify_inbound(bytes: &[u8]) -> InboundMessage {
 }
 
 // ---------------------------------------------------------------------------
+// Default patch
+// ---------------------------------------------------------------------------
+
+/// A fresh [`PatchArea`] copy of FloorBoard's "Init Patch" — a known-
+/// playable starting point with sensible PCM/Modeling/Effects
+/// defaults. Use as the offline-mode seed so editors don't have to
+/// ship their own default YAML or display an empty form.
+#[wasm_bindgen(js_name = newInitPatch)]
+pub fn new_init_patch() -> PatchArea {
+    gr55_core::default_patch::new_init_patch()
+}
+
+// ---------------------------------------------------------------------------
 // PCM tone catalog
 // ---------------------------------------------------------------------------
 

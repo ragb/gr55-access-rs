@@ -2,6 +2,7 @@
 
 pub mod address;
 pub mod codec;
+pub mod default_patch;
 pub mod g5l;
 pub mod help;
 pub mod inbound;
