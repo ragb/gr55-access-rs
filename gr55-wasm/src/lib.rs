@@ -43,6 +43,7 @@ use wasm_bindgen::prelude::*;
 
 use gr55_core::address::PatchSlot;
 use gr55_core::g5l;
+use gr55_core::inbound::{classify_inbound as core_classify_inbound, InboundMessage};
 use gr55_core::mfx_params::{MfxParamEntry, MFX_PARAMS};
 use gr55_core::mod_params::{ParamEntry as ModParamEntry, MOD_PARAMS};
 use gr55_core::modeling_params::{ModelingMode, ModelingParamEntry, MODELING_PARAMS};
@@ -321,6 +322,19 @@ pub fn user_patch_address(bank: u8, position: u8) -> Result<Vec<u8>, JsValue> {
 pub fn preset_patch_address(bank: u8, position: u8) -> Result<Vec<u8>, JsValue> {
     let slot = PatchSlot::preset(bank, position).map_err(js_err)?;
     Ok(slot.address().to_vec())
+}
+
+// ---------------------------------------------------------------------------
+// Inbound classification
+// ---------------------------------------------------------------------------
+
+/// Inspect one inbound MIDI message and decode it into a typed
+/// [`InboundMessage`]. Routes Universal Identity Replies, Roland DT1
+/// / RQ1 frames addressed to the GR-55, Program Change, and Control
+/// Change. Anything else falls through to `{ kind: "other", status }`.
+#[wasm_bindgen(js_name = classifyInbound)]
+pub fn classify_inbound(bytes: &[u8]) -> InboundMessage {
+    core_classify_inbound(bytes)
 }
 
 // ---------------------------------------------------------------------------
