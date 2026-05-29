@@ -54,6 +54,7 @@ use crate::system::{
 /// device happens to emit, including pad spaces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(transparent)]
 pub struct PatchName(
     #[serde(with = "patch_name_serde")]
@@ -143,6 +144,7 @@ mod patch_name_serde {
 /// Guitar/Bass mode discriminator at page `0x00` offset `0x00`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum PatchMode {
     Guitar,
@@ -174,6 +176,7 @@ impl PatchMode {
 /// `Patch Setting` variant. Mined from FloorBoard `midi.xml:38690-38708`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum CtlFunction {
     Off,
@@ -254,6 +257,7 @@ impl CtlFunction {
 ///   patch 0x09 ModControl    == system 0x0A ModControl
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum ExpFunction {
     Off,
@@ -307,6 +311,7 @@ impl ExpFunction {
 /// `0x2C..=0x2F`. Mined from FloorBoard `midi.xml:38818-38835`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum CrossFaderMode {
     Off,
@@ -341,6 +346,7 @@ impl CrossFaderMode {
 /// FloorBoard `midi.xml:38953-38968`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum ExpSwFunction {
     Off,
@@ -410,6 +416,7 @@ impl ExpSwFunction {
 /// constraint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case", tag = "kind", content = "cc")]
 pub enum AssignSource {
     CtrlPdl,
@@ -474,6 +481,7 @@ impl AssignSource {
 /// Assign Source Mode — how the source maps to its target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum AssignSourceMode {
     Moment,
@@ -504,6 +512,7 @@ impl AssignSourceMode {
 /// GK S2 = 0x0A. We encode that intended layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum AssignInternalTrigger {
     PatchChange,
@@ -558,6 +567,7 @@ impl AssignInternalTrigger {
 /// Internal-pedal acceleration curve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum AssignIntPdlCurve {
     Linear,
@@ -586,6 +596,7 @@ impl AssignIntPdlCurve {
 /// Wave-pedal LFO waveform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum AssignWaveForm {
     Saw,
@@ -615,6 +626,7 @@ impl AssignWaveForm {
 /// offset `0x05`. 20 variants. Mined from FloorBoard `midi.xml:40735-40755`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum MfxType {
     Equalizer,
@@ -696,6 +708,7 @@ impl MfxType {
 /// MFX EQ "Low" band frequency (2 settings).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum EqLowFreq {
     Hz200,
@@ -721,6 +734,7 @@ impl EqLowFreq {
 /// MFX EQ "Mid" band frequency (17 settings, 200Hz..=8.0kHz).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum EqMidFreq {
     Hz200,
@@ -793,6 +807,7 @@ impl EqMidFreq {
 /// MFX EQ "Mid" band Q factor (5 settings).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum EqMidQ {
     Q0_5,
@@ -827,6 +842,7 @@ impl EqMidQ {
 /// MFX EQ "High" band frequency (3 settings).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum EqHighFreq {
     Khz2_0,
@@ -869,6 +885,7 @@ impl EqHighFreq {
 /// round-trip.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 pub struct Mfx {
     // Common header (0x00..=0x06).
     /// Chorus Send (raw 0..=100) at offset `0x00`.
@@ -1211,6 +1228,7 @@ fn mfx_address_split(linear: u16) -> (u8, u8) {
 /// disjoint byte ranges per the build-time verification.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 pub struct Mod {
     /// Amp/Mod Chorus Send at `0x07:00:11` (raw 0..=100).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1351,6 +1369,7 @@ impl Mod {
 /// returns the mode/category/type-set/name 4-tuple.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 pub struct Modeling {
     /// Guitar Mode category at `0x10:00:00`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1673,6 +1692,7 @@ fn modeling_address_split(linear: u16) -> (u8, u8) {
 /// makes range-validation (909 is the inclusive max) trivial.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(transparent)]
 pub struct PcmToneIndex(u16);
 
@@ -1730,6 +1750,7 @@ impl PcmToneIndex {
 /// PCM tone portamento switch at PCM-page offset `0x0C`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum PortamentoSwitch {
     Off,
@@ -1758,6 +1779,7 @@ impl PortamentoSwitch {
 /// PCM tone TVA release mode at PCM-page offset `0x0F`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum TvaReleaseMode {
     Mode1,
@@ -1789,6 +1811,7 @@ impl TvaReleaseMode {
 /// per-tone sum modelling.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 pub struct Pcm {
     /// Synth mode at offset `0x00`. FloorBoard documents 0x58 = synth,
     /// 0x56 = drum; other values may be valid. Raw u8.
@@ -2177,6 +2200,7 @@ fn pcm_pages_for_slot(idx: usize) -> (u8, u8) {
 /// `midi.xml:43855-43860`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum GuitarModeCategory {
     ElectricGuitar,
@@ -2211,6 +2235,7 @@ impl GuitarModeCategory {
 /// instrument emulations. Mined from FloorBoard `midi.xml:43862-43873`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum GmEGuitarType {
     ClassicStrat,
@@ -2262,6 +2287,7 @@ impl GmEGuitarType {
 /// Guitar Mode Acoustic instrument type at page `0x10` offset `0x02`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum GmAcousticType {
     Steel,
@@ -2298,6 +2324,7 @@ impl GmAcousticType {
 /// Guitar Mode E.Bass type at page `0x10` offset `0x03`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum GmEBassType {
     JazzBass,
@@ -2325,6 +2352,7 @@ impl GmEBassType {
 /// is identical for both modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum ModelingSynthType {
     AnalogGr,
@@ -2366,6 +2394,7 @@ impl ModelingSynthType {
 /// the remaining three.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum BassModeCategory {
     ElectricBass,
@@ -2396,6 +2425,7 @@ impl BassModeCategory {
 /// Bass Mode E.Bass type at page `0x10` offset `0x06`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum BmEBassType {
     VintJazzBass,
@@ -2445,6 +2475,7 @@ impl BmEBassType {
 /// Classic Strat and Les Paul).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum BmEGuitarType {
     ClassicStrat,
@@ -2474,6 +2505,7 @@ impl BmEGuitarType {
 /// from FloorBoard `midi.xml:43069-43111`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum PreampType {
     BossClean,
@@ -2621,6 +2653,7 @@ impl PreampType {
 /// PreAmp Gain switch at page `0x07` offset `0x04`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum PreampGainSw {
     Low,
@@ -2649,6 +2682,7 @@ impl PreampGainSw {
 /// Speaker simulator cabinet at page `0x07` offset `0x0C`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum SpeakerType {
     Off,
@@ -2697,6 +2731,7 @@ impl SpeakerType {
 /// Microphone model at page `0x07` offset `0x0D`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum MicType {
     Dyn57,
@@ -2733,6 +2768,7 @@ impl MicType {
 /// Microphone distance (off-mic / on-mic) at page `0x07` offset `0x0E`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum MicDistance {
     OffMic,
@@ -2760,6 +2796,7 @@ impl MicDistance {
 /// `midi.xml:43221-43236`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum ModType {
     Distortion,
@@ -2823,6 +2860,7 @@ impl ModType {
 /// Chorus algorithm at page `0x06` offset `0x01`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum ChorusType {
     Mono,
@@ -2856,6 +2894,7 @@ impl ChorusType {
 /// Delay algorithm at page `0x06` offset `0x06`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum DelayType {
     Single,
@@ -2898,6 +2937,7 @@ impl DelayType {
 /// Reverb algorithm at page `0x06` offset `0x0D`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum ReverbType {
     Ambience,
@@ -2934,6 +2974,7 @@ impl ReverbType {
 /// Reverb High Cut at page `0x06` offset `0x0F` (10 settings).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum ReverbHighCut {
     Hz700,
@@ -2985,6 +3026,7 @@ impl ReverbHighCut {
 /// Patch EQ Lo Cut at page `0x06` offset `0x12` (11 settings).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum PatchEqLoCut {
     Flat,
@@ -3040,6 +3082,7 @@ impl PatchEqLoCut {
 /// (28 settings, 20Hz..=10kHz). Reused for both bands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum PatchEqMidFreq {
     Hz20_0,
@@ -3146,6 +3189,7 @@ impl PatchEqMidFreq {
 /// (6 settings). Reused for both bands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum PatchEqMidQ {
     Q0_5,
@@ -3184,6 +3228,7 @@ impl PatchEqMidQ {
 /// 700Hz..=11kHz + Flat). Same byte layout as [`ReverbHighCut`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum PatchEqHighCut {
     Hz700,
@@ -3235,6 +3280,7 @@ impl PatchEqHighCut {
 /// Patch EQ Character at page `0x06` offset `0x1D` (-3..=+3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum PatchEqCharacter {
     Minus3,
@@ -3279,6 +3325,7 @@ impl PatchEqCharacter {
 /// overrides. Mined from FloorBoard `midi.xml:39880-39895`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum PatchGkSet {
     System,
@@ -3333,6 +3380,7 @@ impl PatchGkSet {
 /// Guitar Out routing at page `0x02` offset `0x25`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum GuitarOut {
     Off,
@@ -3365,6 +3413,7 @@ impl GuitarOut {
 /// offsets `0x29..=0x2B`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum VLinkControl {
     Off,
@@ -3399,6 +3448,7 @@ impl VLinkControl {
 /// Patch structure selector at page `0x02` offset `0x2C`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum PatchStructure {
     Structure1,
@@ -3425,6 +3475,7 @@ impl PatchStructure {
 /// (AnalogPU). Three positions: `ByPass`, `Amp/MOD`, `MFX`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum LineRoute {
     ByPass,
@@ -3456,6 +3507,7 @@ impl LineRoute {
 /// distinct type to keep that wire reversal explicit at every site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "lowercase")]
 pub enum AnalogPuToneSw {
     On,
@@ -3486,6 +3538,7 @@ impl AnalogPuToneSw {
 /// since the device has 13 distinct alt-tuning presets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum AltTuningType {
     OpenD,
@@ -3552,6 +3605,7 @@ impl AltTuningType {
 /// hardware.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(transparent)]
 pub struct PatchTempo(pub u8);
 
@@ -3581,6 +3635,7 @@ impl PatchTempo {
 /// lossless.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 pub struct Assign {
     /// On/Off at offset +0x00.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3825,6 +3880,7 @@ fn assign_locate(page: u8, hi: u8, lo: u8) -> Option<(usize, u8)> {
 /// supplies the base MSB when decoding or encoding.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 pub struct PatchArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<PatchMode>,

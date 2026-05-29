@@ -16,6 +16,7 @@ wasm-bindgen = { workspace = true }
 serde-wasm-bindgen = { workspace = true }
 tsify-next = { workspace = true }
 serde = { workspace = true }
+serde_yaml = { workspace = true }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false

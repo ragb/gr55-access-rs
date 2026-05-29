@@ -41,6 +41,7 @@ pub const SYSTEM_MSBS: &[u8] = &[0x01, 0x02];
 /// A USER or PRESET patch slot identified by bank (1..) and position (1..3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PatchSlot {
     User { bank: u8, position: u8 },
@@ -201,6 +202,7 @@ pub enum PatchSlotError {
 /// Classification of a 4-byte SysEx address.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
 #[serde(rename_all = "snake_case", tag = "area")]
 pub enum AddressSpace {
     /// System parameters (MSB 0x01 or 0x02).
