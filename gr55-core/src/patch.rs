@@ -1797,11 +1797,37 @@ pub struct Pcm {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line_route: Option<LineRoute>,
 
-    /// Everything at offsets `0x17..=0x7F` — the tone-type-dependent
-    /// envelope / filter / LFO / per-string parameter block. FloorBoard
-    /// `midi.xml` tags all of these bytes as `customdesc="null"` with no
-    /// further documentation; they're preserved verbatim for round-trip.
-    /// Keyed by offset within the PCM page.
+    /// Bytes at offsets `0x17..=0x7F` that FloorBoard `midi.xml` tags
+    /// as `customdesc="null"`. They're **not** reserved padding —
+    /// they're a standard Roland synth-voice parameter block. The
+    /// GR-55 Owner's Manual (pages 25–27, "Parameter List PCM TONE
+    /// 1/PCM TONE 2") names the groups:
+    ///
+    /// - **TONE**: Level Velocity Sens, Velocity Curve Type
+    ///   (FIX/1–7/TONE)
+    /// - **FILTER**: Filter Type (OFF/LPF/BPF/HPF/PKG/LPF2/LPF3/TONE),
+    ///   Cutoff (-50..=+50), Resonance, Cutoff Velocity Sens,
+    ///   Cutoff Nuance Sens, Cutoff Velocity Curve, Cutoff Keyfollow
+    ///   (-200..=+200)
+    /// - **TVF**: Env Depth, Attack/Decay/Release Time, Sustain Level,
+    ///   Attack Vel Sens, Atk Nuance Sens
+    /// - **TVA**: Attack/Decay/Release Time, Sustain Level, Attack Vel
+    ///   Sens, Atk Nuance Sens, Level Nuance Sens
+    /// - **PITCH ENV**: Vel Sens, Depth (-12..=+12), Attack/Decay Time
+    /// - **LFO1 / LFO2**: Rate (0–100/BPM/TONE), Pitch / TVF / TVA /
+    ///   Pan Depth (each OFF or -50..=+50)
+    ///
+    /// The owner's manual lists the parameter NAMES and value RANGES
+    /// but NOT byte offsets. Roland does not appear to have published a
+    /// separate "MIDI Implementation" document for the GR-55 — the
+    /// MIDI Implementation Chart on page 94 of the owner's manual is
+    /// only the AMEI standard summary (Channel/Mode/Note/CC/etc.), not
+    /// a parameter address map. So we know what these bytes mean
+    /// conceptually but cannot byte-map them precisely without
+    /// additional reverse-engineering against hardware.
+    ///
+    /// Until the byte order is confirmed, these bytes round-trip
+    /// losslessly through this map keyed by page offset.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub raw_tail: BTreeMap<u8, u8>,
 }
