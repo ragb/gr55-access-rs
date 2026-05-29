@@ -62,10 +62,15 @@ fn main() {
     let mod_ = emit_mod_param_table(&doc);
     fs::write(out_dir.join("mod_params.rs"), mod_).expect("write mod_params.rs");
 
-    // Modeling intentionally NOT mined here: unlike MFX/MOD, its owning
-    // type is encoded in the `abbr` attribute (not `desc`) and follows a
-    // 2-axis taxonomy (Mode × Type × per-type Sub-Type). Disjointness is
-    // plausible but the codegen needs different walking logic; deferred.
+    // And Modeling — 2-axis taxonomy (mode encoded by page, category by
+    // `abbr`, type/type-set by `desc`). Multiple types CAN share a single
+    // byte (e.g. desc="01-02" means types 1 and 2 of that category share
+    // this parameter — physical-instrument families with the same control
+    // surface), so the disjoint check here is weaker than for MFX/MOD:
+    // we only assert no two DATA elements claim the same (page, offset).
+    let modeling = emit_modeling_param_table(&doc);
+    fs::write(out_dir.join("modeling_params.rs"), modeling)
+        .expect("write modeling_params.rs");
 }
 
 fn strip_xml_declaration(input: &str) -> &str {
@@ -761,6 +766,294 @@ fn mod_type_for_desc(desc: &str) -> Option<&'static str> {
         }
     }
     None
+}
+
+/// Mine the Modeling parameter table on pages 0x10 + 0x11. Output a
+/// flat 256-byte table with structured ownership: each populated byte
+/// carries (mode, category, types, customdesc).
+///
+/// Mode is derived from the page (0x10 = Guitar Mode for type-specific
+/// bytes, 0x11 = Bass Mode for type-specific bytes; common-header bytes
+/// on page 0x10 0x00..=0x1D apply to both modes). Category comes from
+/// FloorBoard's `abbr`. Types are FloorBoard's `desc` — either a
+/// dash-separated list of numeric type IDs (E.GTR/Bass), a sub-type
+/// name (steel/Nylon/Sitar/...), or a longer phrase ("Analog GR
+/// Envelope modulation"). We don't try to parse the desc into a
+/// structured type set in build.rs; we expose it as a raw string and
+/// let consumers split/match as they need.
+fn emit_modeling_param_table(doc: &Document) -> String {
+    let root = doc.root_element();
+    let structure = root
+        .children()
+        .find(|c| c.has_tag_name("Structure"))
+        .expect("midi.xml missing <Structure>");
+
+    let mut entries: Vec<ModelingParamRow> =
+        (0..256).map(|_| ModelingParamRow::placeholder()).collect();
+
+    for (page_byte, base) in [(0x10_u8, 0_usize), (0x11_u8, 128_usize)] {
+        let page_lsb = match find_child_by_value(structure, "LSB", page_byte) {
+            Some(p) => p,
+            None => continue,
+        };
+        let inner = match find_child_by_value(page_lsb, "LSB", 0x00) {
+            Some(i) => i,
+            None => continue,
+        };
+        for data in inner
+            .children()
+            .filter(|n| n.is_element() && n.has_tag_name("DATA"))
+        {
+            let Some(offset) = hex_value_attr(data) else {
+                continue;
+            };
+            let linear = base + offset as usize;
+            if linear >= entries.len() {
+                continue;
+            }
+            let abbr = data.attribute("abbr").unwrap_or("").trim().to_string();
+            let desc = data.attribute("desc").unwrap_or("").trim().to_string();
+            let customdesc = data.attribute("customdesc").unwrap_or("").trim().to_string();
+
+            // Disjoint-at-wire check: each (page, offset) should be claimed
+            // by at most ONE DATA element in the XML. (Multiple TYPES per
+            // byte via desc dash-lists is fine — that's intra-category
+            // sharing, not a structural overlap.)
+            let prior = &entries[linear];
+            if prior.populated {
+                panic!(
+                    "Modeling table: two DATA elements claim linear 0x{linear:04X} \
+                     (page 0x{page_byte:02X} offset 0x{offset:02X}) — prior {{abbr={:?}, \
+                     desc={:?}}} vs new {{abbr={:?}, desc={:?}}}",
+                    prior.abbr, prior.desc, abbr, desc
+                );
+            }
+            entries[linear] = ModelingParamRow {
+                page: page_byte,
+                offset,
+                abbr,
+                desc,
+                customdesc,
+                populated: true,
+            };
+        }
+    }
+
+    // Categories the table actually carries (post-extraction).
+    let mut categories: BTreeMap<String, usize> = BTreeMap::new();
+    let mut shared_byte_count = 0_usize;
+    let mut single_type_byte_count = 0_usize;
+    let mut common_byte_count = 0_usize;
+    for row in entries.iter().filter(|r| r.populated) {
+        *categories.entry(row.abbr.clone()).or_default() += 1;
+        if row.desc.is_empty() || row.abbr == "Modeling" || row.abbr == "NS" {
+            common_byte_count += 1;
+        } else if row.desc.contains('-') && row.desc.chars().any(|c| c.is_ascii_digit()) {
+            shared_byte_count += 1;
+        } else if row.desc.contains('-') {
+            // Dash-separated name list like "Jazz-PB" — also shared.
+            shared_byte_count += 1;
+        } else {
+            single_type_byte_count += 1;
+        }
+    }
+
+    let mut out = String::new();
+    writeln!(
+        out,
+        "// AUTO-GENERATED by build.rs from data/midi.xml — do not edit."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// Mined from GR-55 FloorBoard's midi.xml (Colin Willcocks, GPL-2-or-later)."
+    )
+    .unwrap();
+    writeln!(out).unwrap();
+    writeln!(
+        out,
+        "/// Which mode a Modeling byte belongs to. Common-header bytes on"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "/// page 0x10 0x00..=0x1D return `Both`; bytes on page 0x10 0x1E.."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "/// return `Guitar`; bytes on page 0x11 return `Bass`."
+    )
+    .unwrap();
+    writeln!(out, "#[derive(Debug, Clone, Copy, PartialEq, Eq)]").unwrap();
+    writeln!(out, "pub enum ModelingMode {{").unwrap();
+    writeln!(out, "    Guitar,").unwrap();
+    writeln!(out, "    Bass,").unwrap();
+    writeln!(out, "    Both,").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out).unwrap();
+    writeln!(
+        out,
+        "/// One byte of the Modeling parameter block. The ownership is"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "/// richer than MFX/MOD: a single byte can be shared by multiple"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "/// instrument types within a category (FloorBoard encodes this"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "/// via dash-separated `desc` strings like \"01-02-03\" or"
+    )
+    .unwrap();
+    writeln!(out, "/// \"Jazz-PB\").").unwrap();
+    writeln!(out, "#[derive(Debug, Clone, Copy)]").unwrap();
+    writeln!(out, "pub struct ModelingParamEntry {{").unwrap();
+    writeln!(out, "    pub page: u8,").unwrap();
+    writeln!(out, "    pub offset: u8,").unwrap();
+    writeln!(out, "    pub mode: ModelingMode,").unwrap();
+    writeln!(
+        out,
+        "    /// Top-level category from `abbr` — e.g. \"E.GTR\", \"Acoustic\","
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    /// \"Bass\", \"Synth\", \"Modeling\" (common header bytes), \"NS\""
+    )
+    .unwrap();
+    writeln!(out, "    /// (noise suppressor), or \"\" (unmapped).").unwrap();
+    writeln!(out, "    pub category: &'static str,").unwrap();
+    writeln!(
+        out,
+        "    /// Type subset from `desc` — dash-separated IDs (\"01-02\","
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    /// \"03-04-05-07\"), sub-type names (\"steel\", \"Nylon\","
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    /// \"Jazz-PB\"), or descriptive phrases (\"Analog GR Envelope"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    /// modulation\"). Empty for bytes that apply to all types"
+    )
+    .unwrap();
+    writeln!(out, "    /// of the category.").unwrap();
+    writeln!(out, "    pub types: &'static str,").unwrap();
+    writeln!(out, "    pub name: &'static str,").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out).unwrap();
+    writeln!(out, "pub const MODELING_BLOCK_SIZE: usize = 256;").unwrap();
+    writeln!(out).unwrap();
+    writeln!(
+        out,
+        "pub static MODELING_PARAMS: [ModelingParamEntry; MODELING_BLOCK_SIZE] = ["
+    )
+    .unwrap();
+    for (linear, row) in entries.iter().enumerate() {
+        let mode = if !row.populated || linear < 0x1E {
+            "ModelingMode::Both"
+        } else if row.page == 0x10 {
+            "ModelingMode::Guitar"
+        } else {
+            "ModelingMode::Bass"
+        };
+        writeln!(
+            out,
+            "    ModelingParamEntry {{ page: 0x{:02X}, offset: 0x{:02X}, mode: {mode}, \
+             category: {}, types: {}, name: {} }},",
+            row.page,
+            row.offset,
+            rust_str(&row.abbr),
+            rust_str(&row.desc),
+            rust_str(&row.customdesc),
+        )
+        .unwrap();
+    }
+    writeln!(out, "];").unwrap();
+    writeln!(out).unwrap();
+    writeln!(
+        out,
+        "/// Number of populated Modeling bytes per top-level category."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "pub static MODELING_CATEGORY_BYTE_COUNTS: &[(&str, usize)] = &["
+    )
+    .unwrap();
+    for (cat, n) in &categories {
+        let label = if cat.is_empty() { "<unmapped>" } else { cat };
+        writeln!(out, "    ({}, {n}),", rust_str(label)).unwrap();
+    }
+    writeln!(out, "];").unwrap();
+    writeln!(
+        out,
+        "/// Bytes shared across multiple types within their category"
+    )
+    .unwrap();
+    writeln!(out, "/// (desc contains a dash-separated list).").unwrap();
+    writeln!(
+        out,
+        "pub const MODELING_SHARED_TYPE_BYTES: usize = {shared_byte_count};"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "/// Bytes owned by exactly one type within their category."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "pub const MODELING_SINGLE_TYPE_BYTES: usize = {single_type_byte_count};"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "/// Bytes that aren't type-specific (common header, NS, mode-bridging)."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "pub const MODELING_COMMON_BYTES: usize = {common_byte_count};"
+    )
+    .unwrap();
+    out
+}
+
+#[derive(Debug, Clone)]
+struct ModelingParamRow {
+    page: u8,
+    offset: u8,
+    abbr: String,
+    desc: String,
+    customdesc: String,
+    populated: bool,
+}
+
+impl ModelingParamRow {
+    fn placeholder() -> Self {
+        ModelingParamRow {
+            page: 0,
+            offset: 0,
+            abbr: String::new(),
+            desc: String::new(),
+            customdesc: String::new(),
+            populated: false,
+        }
+    }
 }
 
 /// Shared codegen for MFX-style tables. `block_label` and `enum_name` go

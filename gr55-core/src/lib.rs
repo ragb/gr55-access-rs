@@ -5,6 +5,7 @@ pub mod codec;
 pub mod mfx_params;
 pub mod midi_map;
 pub mod mod_params;
+pub mod modeling_params;
 pub mod patch;
 pub mod pcm_tones;
 pub mod sysex;
