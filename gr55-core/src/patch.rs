@@ -1039,6 +1039,276 @@ fn all_mfx_none(arr: &[Option<Mfx>; 2]) -> bool {
     arr.iter().all(Option::is_none)
 }
 
+/// PCM tone portamento switch at PCM-page offset `0x0C`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PortamentoSwitch {
+    Off,
+    On,
+    Tone,
+}
+
+impl PortamentoSwitch {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Off),
+            0x01 => Some(Self::On),
+            0x02 => Some(Self::Tone),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::Off => 0x00,
+            Self::On => 0x01,
+            Self::Tone => 0x02,
+        }
+    }
+}
+
+/// PCM tone TVA release mode at PCM-page offset `0x0F`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TvaReleaseMode {
+    Mode1,
+    Mode2,
+}
+
+impl TvaReleaseMode {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Mode1),
+            0x01 => Some(Self::Mode2),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::Mode1 => 0x00,
+            Self::Mode2 => 0x01,
+        }
+    }
+}
+
+/// One PCM tone slot. The GR-55 has 4: PCM-1-A (page `0x20`), PCM-2-A
+/// (page `0x21`), PCM-1-B (page `0x30`), PCM-2-B (page `0x31`).
+///
+/// This commit types the common header (offsets `0x00..=0x0F`); the
+/// remaining 112 bytes (`0x10..=0x7F`) form a PCM-tone-type-dependent
+/// envelope/filter/LFO/effects block kept in `raw_tail` pending
+/// per-tone sum modelling.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Pcm {
+    /// Synth mode at offset `0x00`. FloorBoard documents 0x58 = synth,
+    /// 0x56 = drum; other values may be valid. Raw u8.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub synth_mode: Option<u8>,
+    /// PCM tone index at offset `0x01`. The GR-55 ships with ~900 PCM
+    /// tones; encoding them as a flat enum would be unwieldy, so this
+    /// stays as a raw byte. Name lookup is a follow-up.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub synth_tone: Option<u8>,
+    /// Offset `0x02` has no FloorBoard documentation. Raw u8.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_02: Option<u8>,
+    /// Tone switch at `0x03`. Uses the same wire-reversed encoding as
+    /// [`AnalogPuToneSw`] (0x00 = On, 0x01 = Off).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tone_sw: Option<AnalogPuToneSw>,
+    /// Tone level at `0x04` (raw 0..=127, display 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tone_level: Option<u8>,
+    /// Octave at `0x05` — wire `0x3D..=0x43` maps to `-3..=+3`. Stored
+    /// raw to match the SystemArea convention.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub octave: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chromatic: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legato: Option<OnOff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nuance_sw: Option<OnOff>,
+    /// Pan at `0x09`. FloorBoard documents a non-monotonic L50..R50
+    /// mapping across bytes `0x01..=0x7F`; stored raw for round-trip
+    /// fidelity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pan: Option<u8>,
+    /// Pitch shift at `0x0A` — wire `0x28..=0x58` = -24..=+24 semitones.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pitch_shift: Option<u8>,
+    /// Pitch fine at `0x0B` — wire `0x0E..=0x72` = -50..=+50 cents.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pitch_fine: Option<u8>,
+    /// Portamento switch at `0x0C` (Off / On / Tone).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub portamento_sw: Option<PortamentoSwitch>,
+    /// Portamento time at `0x0D` (raw 0..=7).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub portamento_time: Option<u8>,
+    /// Offset `0x0E` is `abbr="Portamento"` but has no `customdesc`.
+    /// Raw u8 0..=15.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub portamento_raw_0e: Option<u8>,
+    /// TVA release mode at `0x0F` (Mode 1 / Mode 2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tva_release_mode: Option<TvaReleaseMode>,
+
+    /// Everything at offsets `0x10..=0x7F` — the type-dependent
+    /// envelope / filter / LFO / per-string parameter block. Keyed by
+    /// offset within the PCM page.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub raw_tail: BTreeMap<u8, u8>,
+}
+
+impl Pcm {
+    fn store_byte(&mut self, off: u8, b: u8) -> bool {
+        match off {
+            0x00 => {
+                self.synth_mode = Some(b);
+                true
+            }
+            0x01 => {
+                self.synth_tone = Some(b);
+                true
+            }
+            0x02 => {
+                self.raw_02 = Some(b);
+                true
+            }
+            0x03 => match AnalogPuToneSw::from_byte(b) {
+                Some(v) => {
+                    self.tone_sw = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x04 if b <= 0x7F => {
+                self.tone_level = Some(b);
+                true
+            }
+            0x05 if (0x3D..=0x43).contains(&b) => {
+                self.octave = Some(b);
+                true
+            }
+            0x06 => match OnOff::from_byte(b) {
+                Some(v) => {
+                    self.chromatic = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x07 => match OnOff::from_byte(b) {
+                Some(v) => {
+                    self.legato = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x08 => match OnOff::from_byte(b) {
+                Some(v) => {
+                    self.nuance_sw = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x09 if b <= 0x7F => {
+                self.pan = Some(b);
+                true
+            }
+            0x0A if (0x28..=0x58).contains(&b) => {
+                self.pitch_shift = Some(b);
+                true
+            }
+            0x0B if (0x0E..=0x72).contains(&b) => {
+                self.pitch_fine = Some(b);
+                true
+            }
+            0x0C => match PortamentoSwitch::from_byte(b) {
+                Some(v) => {
+                    self.portamento_sw = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x0D if b <= 7 => {
+                self.portamento_time = Some(b);
+                true
+            }
+            0x0E if b <= 0x0F => {
+                self.portamento_raw_0e = Some(b);
+                true
+            }
+            0x0F => match TvaReleaseMode::from_byte(b) {
+                Some(v) => {
+                    self.tva_release_mode = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x10..=0x7F => {
+                self.raw_tail.insert(off, b);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn emit_bytes(&self, bytes: &mut BTreeMap<[u8; 4], u8>, base_msb: u8, page: u8) {
+        macro_rules! put {
+            ($off:expr, $val:expr) => {
+                if let Some(v) = $val {
+                    bytes.insert([base_msb, page, 0x00, $off], v);
+                }
+            };
+        }
+        put!(0x00, self.synth_mode);
+        put!(0x01, self.synth_tone);
+        put!(0x02, self.raw_02);
+        put!(0x03, self.tone_sw.map(AnalogPuToneSw::to_byte));
+        put!(0x04, self.tone_level);
+        put!(0x05, self.octave);
+        put!(0x06, self.chromatic.map(OnOff::to_byte));
+        put!(0x07, self.legato.map(OnOff::to_byte));
+        put!(0x08, self.nuance_sw.map(OnOff::to_byte));
+        put!(0x09, self.pan);
+        put!(0x0A, self.pitch_shift);
+        put!(0x0B, self.pitch_fine);
+        put!(0x0C, self.portamento_sw.map(PortamentoSwitch::to_byte));
+        put!(0x0D, self.portamento_time);
+        put!(0x0E, self.portamento_raw_0e);
+        put!(0x0F, self.tva_release_mode.map(TvaReleaseMode::to_byte));
+        for (off, b) in &self.raw_tail {
+            bytes.insert([base_msb, page, 0x00, *off], *b);
+        }
+    }
+}
+
+fn all_pcm_none(arr: &[Option<Pcm>; 4]) -> bool {
+    arr.iter().all(Option::is_none)
+}
+
+/// Maps a PCM-page byte (0x20 / 0x21 / 0x30 / 0x31) to a slot index
+/// 0..=3 in `PatchArea::pcm`.
+fn pcm_slot_for_page(page: u8) -> Option<usize> {
+    match page {
+        0x20 => Some(0), // PCM-1-A
+        0x21 => Some(1), // PCM-2-A
+        0x30 => Some(2), // PCM-1-B
+        0x31 => Some(3), // PCM-2-B
+        _ => None,
+    }
+}
+
+fn pcm_page_for_slot(idx: usize) -> u8 {
+    match idx {
+        0 => 0x20,
+        1 => 0x21,
+        2 => 0x30,
+        3 => 0x31,
+        _ => unreachable!("pcm slot index out of range"),
+    }
+}
+
 /// Guitar Mode modeling category at page `0x10` offset `0x00`. Selects
 /// which of `gm_egtr_type` / `gm_acoustic_type` / `gm_ebass_type` /
 /// `gm_synth_type` the device actually plays. Mined from FloorBoard
@@ -3307,6 +3577,13 @@ pub struct PatchArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modeling_12_string: Option<OnOff>,
 
+    /// The 4 PCM tone slots: PCM-1-A (page `0x20`), PCM-2-A (`0x21`),
+    /// PCM-1-B (`0x30`), PCM-2-B (`0x31`). Each `Pcm` types the common
+    /// header at offsets `0x00..=0x0F` and keeps the type-dependent
+    /// tail at `0x10..=0x7F` in `Pcm::raw_tail`.
+    #[serde(default, skip_serializing_if = "all_pcm_none")]
+    pub pcm: [Option<Pcm>; 4],
+
     /// Everything inside the patch payload that the typed model doesn't yet
     /// cover. Keys are formatted `"PP:HH:LL"` — page byte, then the two
     /// in-page offset bytes.
@@ -3661,6 +3938,14 @@ impl PatchArea {
             (0x10, 0x00, 0x1B) if b <= 0x30 => self.modeling_pitch_step[5] = Some(b),
             (0x10, 0x00, 0x1C) if b <= 0x64 => self.modeling_pitch_fine[5] = Some(b),
             (0x10, 0x00, 0x1D) => self.modeling_12_string = OnOff::from_byte(b),
+            // PCM tone slots — pages 0x20, 0x21, 0x30, 0x31.
+            (_, 0x00, off) if pcm_slot_for_page(page).is_some() => {
+                let idx = pcm_slot_for_page(page).unwrap();
+                let pcm = self.pcm[idx].get_or_insert_with(Pcm::default);
+                if !pcm.store_byte(off, b) {
+                    self.unknown_bytes.insert(format_key(page, hi, lo), b);
+                }
+            }
             _ => {
                 self.unknown_bytes.insert(format_key(page, hi, lo), b);
             }
@@ -4333,6 +4618,12 @@ impl PatchArea {
         if let Some(v) = self.modeling_12_string {
             bytes.insert([base_msb, 0x10, 0x00, 0x1D], v.to_byte());
         }
+        // PCM tone slots
+        for (idx, slot) in self.pcm.iter().enumerate() {
+            if let Some(pcm) = slot {
+                pcm.emit_bytes(&mut bytes, base_msb, pcm_page_for_slot(idx));
+            }
+        }
         for (k, b) in &self.unknown_bytes {
             let (page, hi, lo) =
                 parse_key(k).ok_or_else(|| CodecError::BadStoredAddress(k.clone()))?;
@@ -4757,19 +5048,19 @@ mod tests {
     fn payload_carries_lo_at_7f_to_next_hi() {
         // A 3-byte payload starting at lo=0x7E should land at lo=0x7E,
         // lo=0x7F, then (hi=0x01, lo=0x00) — NOT (hi=0x00, lo=0x80).
-        // Use page 0x20 (PCM-1-A), which isn't typed yet, so the bytes
-        // fall through to unknown_bytes where we can inspect them.
+        // Use page 0x40 — well above any typed page — so the bytes fall
+        // through to unknown_bytes where we can inspect them.
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x20, 0x00, 0x7E],
+            address: [TEMP_MSB, 0x40, 0x00, 0x7E],
             data: Cow::Owned(vec![0xA1, 0xA2, 0xA3]),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
-        assert_eq!(area.unknown_bytes.get("20:00:7E"), Some(&0xA1));
-        assert_eq!(area.unknown_bytes.get("20:00:7F"), Some(&0xA2));
-        assert_eq!(area.unknown_bytes.get("20:01:00"), Some(&0xA3));
+        assert_eq!(area.unknown_bytes.get("40:00:7E"), Some(&0xA1));
+        assert_eq!(area.unknown_bytes.get("40:00:7F"), Some(&0xA2));
+        assert_eq!(area.unknown_bytes.get("40:01:00"), Some(&0xA3));
         // The wrong (overflow-to-0x80) behaviour would surface here:
-        assert!(!area.unknown_bytes.contains_key("20:00:80"));
+        assert!(!area.unknown_bytes.contains_key("40:00:80"));
     }
 
     #[test]
@@ -5252,6 +5543,77 @@ mod tests {
 
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
+    }
+
+    #[test]
+    fn pcm_tone_header_round_trips_across_all_four_pages() {
+        let mut frames = Vec::new();
+        for (slot_idx, page) in [(0_usize, 0x20_u8), (1, 0x21), (2, 0x30), (3, 0x31)] {
+            let payload: Vec<u8> = vec![
+                0x58 + slot_idx as u8,             // 0x00 synth_mode (varied per slot)
+                10 + slot_idx as u8,               // 0x01 synth_tone (varied)
+                0xAA,                              // 0x02 raw_02
+                AnalogPuToneSw::Off.to_byte(),     // 0x03 tone_sw (= 0x01)
+                100,                               // 0x04 tone_level
+                0x41,                              // 0x05 octave (= +1)
+                OnOff::On.to_byte(),               // 0x06 chromatic
+                OnOff::Off.to_byte(),              // 0x07 legato
+                OnOff::On.to_byte(),               // 0x08 nuance_sw
+                0x40,                              // 0x09 pan (center)
+                0x40,                              // 0x0A pitch_shift (= +0)
+                0x40,                              // 0x0B pitch_fine (= +0)
+                PortamentoSwitch::Tone.to_byte(),  // 0x0C
+                5,                                 // 0x0D portamento_time
+                8,                                 // 0x0E portamento_raw_0e
+                TvaReleaseMode::Mode2.to_byte(),   // 0x0F
+                0xD1,                              // 0x10 raw_tail
+                0xD2,                              // 0x11 raw_tail
+            ];
+            frames.push(Frame::Dt1 {
+                device_id: 0x10,
+                address: [TEMP_MSB, page, 0x00, 0x00],
+                data: Cow::Owned(payload),
+            });
+        }
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+
+        for slot_idx in 0..4 {
+            let pcm = area.pcm[slot_idx].as_ref().expect("slot");
+            assert_eq!(pcm.synth_mode, Some(0x58 + slot_idx as u8));
+            assert_eq!(pcm.synth_tone, Some(10 + slot_idx as u8));
+            assert_eq!(pcm.raw_02, Some(0xAA));
+            assert_eq!(pcm.tone_sw, Some(AnalogPuToneSw::Off));
+            assert_eq!(pcm.tone_level, Some(100));
+            assert_eq!(pcm.octave, Some(0x41));
+            assert_eq!(pcm.chromatic, Some(OnOff::On));
+            assert_eq!(pcm.legato, Some(OnOff::Off));
+            assert_eq!(pcm.nuance_sw, Some(OnOff::On));
+            assert_eq!(pcm.pan, Some(0x40));
+            assert_eq!(pcm.pitch_shift, Some(0x40));
+            assert_eq!(pcm.pitch_fine, Some(0x40));
+            assert_eq!(pcm.portamento_sw, Some(PortamentoSwitch::Tone));
+            assert_eq!(pcm.portamento_time, Some(5));
+            assert_eq!(pcm.portamento_raw_0e, Some(8));
+            assert_eq!(pcm.tva_release_mode, Some(TvaReleaseMode::Mode2));
+            // Tail bytes preserved.
+            assert_eq!(pcm.raw_tail.get(&0x10), Some(&0xD1));
+            assert_eq!(pcm.raw_tail.get(&0x11), Some(&0xD2));
+        }
+
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
+    }
+
+    #[test]
+    fn pcm_slot_page_mapping_is_correct() {
+        assert_eq!(pcm_slot_for_page(0x20), Some(0));
+        assert_eq!(pcm_slot_for_page(0x21), Some(1));
+        assert_eq!(pcm_slot_for_page(0x30), Some(2));
+        assert_eq!(pcm_slot_for_page(0x31), Some(3));
+        assert_eq!(pcm_slot_for_page(0x22), None);
+        assert_eq!(pcm_slot_for_page(0x32), None);
+        assert_eq!(pcm_page_for_slot(0), 0x20);
+        assert_eq!(pcm_page_for_slot(3), 0x31);
     }
 
     #[test]
