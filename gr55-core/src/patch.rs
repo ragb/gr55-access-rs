@@ -1039,6 +1039,58 @@ fn all_mfx_none(arr: &[Option<Mfx>; 2]) -> bool {
     arr.iter().all(Option::is_none)
 }
 
+/// Linear PCM tone index (0..=909) for the 910 named tones in the GR-55
+/// catalog.
+///
+/// **Wire encoding** (FloorBoard `midi.xml:44900-45828`): the catalog is
+/// split across 8 banks of up to 128 tones each, addressed by two
+/// consecutive bytes within the PCM page:
+///
+/// - PCM-page offset `0x01` = bank (0..=7).
+/// - PCM-page offset `0x02` = position within bank (0..=127).
+///
+/// The linear index is `bank * 128 + position`. Bank 0 pos 0 = tone "001
+/// St.Piano 1"; the last populated tone is bank 7 pos 13 = "910 …" (bank
+/// 7 is partially filled).
+///
+/// Storing both bytes as a single `u16` keeps the model wire-correct and
+/// makes range-validation (909 is the inclusive max) trivial.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PcmToneIndex(u16);
+
+impl PcmToneIndex {
+    /// Validated constructor. Accepts 0..=909.
+    pub fn new(linear: u16) -> Option<Self> {
+        if linear <= 909 {
+            Some(PcmToneIndex(linear))
+        } else {
+            None
+        }
+    }
+    /// Linear index (0..=909). Add 1 for the device's 1-based display
+    /// number ("001 St.Piano 1" = linear 0).
+    pub fn get(self) -> u16 {
+        self.0
+    }
+    /// Combine the two wire bytes into a linear index. Returns `None`
+    /// when the resulting linear value exceeds 909, or when either
+    /// component byte exceeds its valid range (bank > 7, pos > 0x7F).
+    pub fn from_two_bytes(bank: u8, position: u8) -> Option<Self> {
+        if bank > 7 || position > 0x7F {
+            return None;
+        }
+        let linear = (bank as u16) * 128 + (position as u16);
+        Self::new(linear)
+    }
+    /// Split the linear index back into wire bytes (bank, position).
+    pub fn to_two_bytes(self) -> [u8; 2] {
+        let bank = (self.0 / 128) as u8;
+        let position = (self.0 % 128) as u8;
+        [bank, position]
+    }
+}
+
 /// PCM tone portamento switch at PCM-page offset `0x0C`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1103,14 +1155,10 @@ pub struct Pcm {
     /// 0x56 = drum; other values may be valid. Raw u8.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub synth_mode: Option<u8>,
-    /// PCM tone index at offset `0x01`. The GR-55 ships with ~900 PCM
-    /// tones; encoding them as a flat enum would be unwieldy, so this
-    /// stays as a raw byte. Name lookup is a follow-up.
+    /// PCM tone index at offsets `0x01` (bank) + `0x02` (position).
+    /// Combined into a single linear 0..=909 — see [`PcmToneIndex`].
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub synth_tone: Option<u8>,
-    /// Offset `0x02` has no FloorBoard documentation. Raw u8.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_02: Option<u8>,
+    pub synth_tone: Option<PcmToneIndex>,
     /// Tone switch at `0x03`. Uses the same wire-reversed encoding as
     /// [`AnalogPuToneSw`] (0x00 = On, 0x01 = Off).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1167,12 +1215,12 @@ impl Pcm {
                 self.synth_mode = Some(b);
                 true
             }
-            0x01 => {
-                self.synth_tone = Some(b);
-                true
-            }
-            0x02 => {
-                self.raw_02 = Some(b);
+            // 0x01 (bank) and 0x02 (position) are parked in `raw_tail`
+            // during the byte-by-byte pass and lifted into the typed
+            // `synth_tone: PcmToneIndex` field in `Pcm::finalize` once
+            // both bytes are known.
+            0x01 | 0x02 => {
+                self.raw_tail.insert(off, b);
                 true
             }
             0x03 => match AnalogPuToneSw::from_byte(b) {
@@ -1253,6 +1301,24 @@ impl Pcm {
         }
     }
 
+    /// Combine the parked bank+position bytes at `raw_tail[0x01]` and
+    /// `raw_tail[0x02]` into the typed `synth_tone` field. Called once
+    /// from `PatchArea::from_frames_at` after the byte-by-byte sweep.
+    /// If only one of the two bytes is present, they stay in `raw_tail`
+    /// for lossless round-trip; if the combined linear value is out of
+    /// range, both bytes stay in `raw_tail`.
+    fn finalize(&mut self) {
+        let bank = self.raw_tail.get(&0x01).copied();
+        let pos = self.raw_tail.get(&0x02).copied();
+        if let (Some(b), Some(p)) = (bank, pos) {
+            if let Some(idx) = PcmToneIndex::from_two_bytes(b, p) {
+                self.synth_tone = Some(idx);
+                self.raw_tail.remove(&0x01);
+                self.raw_tail.remove(&0x02);
+            }
+        }
+    }
+
     fn emit_bytes(&self, bytes: &mut BTreeMap<[u8; 4], u8>, base_msb: u8, page: u8) {
         macro_rules! put {
             ($off:expr, $val:expr) => {
@@ -1262,8 +1328,12 @@ impl Pcm {
             };
         }
         put!(0x00, self.synth_mode);
-        put!(0x01, self.synth_tone);
-        put!(0x02, self.raw_02);
+        // synth_tone always emits both wire bytes when set.
+        if let Some(idx) = self.synth_tone {
+            let [bank, pos] = idx.to_two_bytes();
+            bytes.insert([base_msb, page, 0x00, 0x01], bank);
+            bytes.insert([base_msb, page, 0x00, 0x02], pos);
+        }
         put!(0x03, self.tone_sw.map(AnalogPuToneSw::to_byte));
         put!(0x04, self.tone_level);
         put!(0x05, self.octave);
@@ -3637,6 +3707,12 @@ impl PatchArea {
             PatchTempo::from_two_bytes,
             |area, v| area.patch_tempo = Some(v),
         );
+        // Lift the 2-byte (bank, position) PCM tone selector in each
+        // populated slot from `raw_tail` into the typed `synth_tone`
+        // field.
+        for slot in area.pcm.iter_mut().flatten() {
+            slot.finalize();
+        }
         area
     }
 
@@ -5548,11 +5624,20 @@ mod tests {
     #[test]
     fn pcm_tone_header_round_trips_across_all_four_pages() {
         let mut frames = Vec::new();
+        // Use a different (bank, position) per slot so any cross-slot
+        // mixup would surface.
+        let tone_per_slot = [
+            (0_u8, 5_u8),  // slot 0 → tone 5 (St.Piano 6 area)
+            (1_u8, 12_u8), // slot 1 → tone 140
+            (4_u8, 60_u8), // slot 2 → tone 572
+            (7_u8, 13_u8), // slot 3 → tone 909 (last populated)
+        ];
         for (slot_idx, page) in [(0_usize, 0x20_u8), (1, 0x21), (2, 0x30), (3, 0x31)] {
+            let (bank, pos) = tone_per_slot[slot_idx];
             let payload: Vec<u8> = vec![
-                0x58 + slot_idx as u8,             // 0x00 synth_mode (varied per slot)
-                10 + slot_idx as u8,               // 0x01 synth_tone (varied)
-                0xAA,                              // 0x02 raw_02
+                0x58 + slot_idx as u8,             // 0x00 synth_mode
+                bank,                              // 0x01 tone bank
+                pos,                               // 0x02 tone position
                 AnalogPuToneSw::Off.to_byte(),     // 0x03 tone_sw (= 0x01)
                 100,                               // 0x04 tone_level
                 0x41,                              // 0x05 octave (= +1)
@@ -5560,8 +5645,8 @@ mod tests {
                 OnOff::Off.to_byte(),              // 0x07 legato
                 OnOff::On.to_byte(),               // 0x08 nuance_sw
                 0x40,                              // 0x09 pan (center)
-                0x40,                              // 0x0A pitch_shift (= +0)
-                0x40,                              // 0x0B pitch_fine (= +0)
+                0x40,                              // 0x0A pitch_shift
+                0x40,                              // 0x0B pitch_fine
                 PortamentoSwitch::Tone.to_byte(),  // 0x0C
                 5,                                 // 0x0D portamento_time
                 8,                                 // 0x0E portamento_raw_0e
@@ -5577,11 +5662,11 @@ mod tests {
         }
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
 
-        for slot_idx in 0..4 {
+        let expected_linear = [5_u16, 140, 572, 909];
+        for (slot_idx, &expected) in expected_linear.iter().enumerate() {
             let pcm = area.pcm[slot_idx].as_ref().expect("slot");
             assert_eq!(pcm.synth_mode, Some(0x58 + slot_idx as u8));
-            assert_eq!(pcm.synth_tone, Some(10 + slot_idx as u8));
-            assert_eq!(pcm.raw_02, Some(0xAA));
+            assert_eq!(pcm.synth_tone.map(|t| t.get()), Some(expected));
             assert_eq!(pcm.tone_sw, Some(AnalogPuToneSw::Off));
             assert_eq!(pcm.tone_level, Some(100));
             assert_eq!(pcm.octave, Some(0x41));
@@ -5595,11 +5680,59 @@ mod tests {
             assert_eq!(pcm.portamento_time, Some(5));
             assert_eq!(pcm.portamento_raw_0e, Some(8));
             assert_eq!(pcm.tva_release_mode, Some(TvaReleaseMode::Mode2));
-            // Tail bytes preserved.
+            // Tail bytes preserved; 0x01 / 0x02 are NOT in raw_tail
+            // anymore because finalize lifted them out.
+            assert!(!pcm.raw_tail.contains_key(&0x01));
+            assert!(!pcm.raw_tail.contains_key(&0x02));
             assert_eq!(pcm.raw_tail.get(&0x10), Some(&0xD1));
             assert_eq!(pcm.raw_tail.get(&0x11), Some(&0xD2));
         }
 
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
+    }
+
+    #[test]
+    fn pcm_tone_index_validates_range_and_round_trips_bytes() {
+        // The first tone in the catalog.
+        let first = PcmToneIndex::new(0).unwrap();
+        assert_eq!(first.to_two_bytes(), [0, 0]);
+        assert_eq!(PcmToneIndex::from_two_bytes(0, 0), Some(first));
+
+        // A tone in the middle.
+        let mid = PcmToneIndex::new(300).unwrap();
+        assert_eq!(mid.to_two_bytes(), [2, 44]);
+        assert_eq!(PcmToneIndex::from_two_bytes(2, 44), Some(mid));
+
+        // The very last populated tone.
+        let last = PcmToneIndex::new(909).unwrap();
+        assert_eq!(last.to_two_bytes(), [7, 13]);
+        assert_eq!(PcmToneIndex::from_two_bytes(7, 13), Some(last));
+
+        // Out-of-range linear value.
+        assert!(PcmToneIndex::new(910).is_none());
+
+        // Out-of-range byte components.
+        assert!(PcmToneIndex::from_two_bytes(8, 0).is_none()); // bank > 7
+        assert!(PcmToneIndex::from_two_bytes(0, 0x80).is_none()); // pos > 0x7F
+        assert!(PcmToneIndex::from_two_bytes(7, 14).is_none()); // valid bytes, linear > 909
+    }
+
+    #[test]
+    fn pcm_tone_partial_decode_leaves_bytes_in_raw_tail() {
+        // Only the bank byte arrives (no position). It should park in
+        // raw_tail and NOT promote to a typed synth_tone.
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x20, 0x00, 0x01],
+            data: Cow::Owned(vec![3]),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+        let pcm = area.pcm[0].as_ref().expect("slot 0 should exist");
+        assert!(pcm.synth_tone.is_none());
+        assert_eq!(pcm.raw_tail.get(&0x01), Some(&3));
+
+        // Round-trip: the partial byte must survive.
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
     }
