@@ -45,9 +45,13 @@ The crate was scrubbed of vendored FloorBoard content in two phases:
    value enumerations are facts about Roland's MIDI protocol and not
    subject to copyright in the United States (Feist v. Rural Telephone,
    1991).
-2. **The `external/floorboard` submodule + the follow-up commit** —
-   moved the test fixtures (`.syx`, `.g5l`) and the bulky FloorBoard
-   source tree out of the repo. Tests load fixtures at runtime via
-   `crate::test_support::fb_fixture_required(...)` instead of
-   `include_bytes!`, so the compiled `gr55-core` artifact contains no
-   verbatim FB bytes either.
+2. **`c4c9956`** — moved the test fixtures (`.syx`, `.g5l`) and the
+   bulky FloorBoard source tree out of the repo. Tests load fixtures
+   at runtime via `crate::test_support::fb_fixture_required(...)`
+   instead of `include_bytes!`, so the compiled `gr55-core` artifact
+   contains no verbatim FB bytes either.
+
+With those two scrubs complete the project relicensed from
+GPL-3.0-or-later to MIT in a follow-up commit. The Feist-based
+provenance argument is documented in [`THIRDPARTY.md`](../../THIRDPARTY.md)
+at the repository root.
