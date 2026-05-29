@@ -825,14 +825,21 @@ impl EqHighFreq {
     }
 }
 
-/// One MFX slot. Pages `0x03` and `0x04` of the Patch model each hold one
-/// of these (`PatchArea::mfx[0]` and `PatchArea::mfx[1]`).
+/// The Patch's single MFX slot. The MFX parameter block is 256 bytes
+/// laid across pages `0x03` (linear `0..=127`) and `0x04` (linear
+/// `128..=255`). Despite FloorBoard `midi.xml` LSB-labelling page `0x04`
+/// as "MFX 2", its content is the **continuation** of MFX 1's
+/// type-specific region — there is only one MFX slot, not two.
 ///
-/// Common header (sends, switch, type, pan) and the 11-byte EQ block at
-/// offsets `0x00..=0x11` are typed. The remaining 110 bytes
-/// (`0x12..=0x7F`) form an MFX-type-dependent parameter block that this
-/// commit keeps in `raw_tail` for lossless round-trip; per-type sum
-/// modelling is deferred to a follow-up.
+/// The 6 common header bytes (sends, switch, type, pan, plus a
+/// "reserved" byte) are typed individually. The 11-byte block at
+/// linear `0x07..=0x11` carries the **Equalizer effect's** parameters
+/// (they are present whenever the byte at `0x05` is `MfxType::Equalizer`).
+/// The remaining bytes at linear `0x12..=0xFF` form a parallel pile of
+/// per-effect-type parameter blocks, one disjoint range per effect type
+/// per the build-time-validated [`crate::mfx_params`] table; this
+/// commit keeps them in `raw_tail` keyed by linear offset for lossless
+/// round-trip.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mfx {
     // Common header (0x00..=0x06).
@@ -886,18 +893,22 @@ pub struct Mfx {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub eq_level: Option<u8>,
 
-    /// Every byte at offset `0x12..=0x7F` that this commit doesn't model
-    /// yet. Keyed by offset within the MFX page.
+    /// Every byte not covered by the typed fields above. Keys are
+    /// **linear offsets** spanning both pages: `0x00..=0x7F` = page
+    /// `0x03` offsets `0x00..=0x7F`, `0x80..=0xFF` = page `0x04`
+    /// offsets `0x00..=0x7F`. Looking these up against
+    /// [`crate::mfx_params::MFX_PARAMS`] gives the parameter name and
+    /// owning effect type.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub raw_tail: BTreeMap<u8, u8>,
+    pub raw_tail: BTreeMap<u16, u8>,
 }
 
 impl Mfx {
-    /// Try to absorb a single byte at offset `off` (0..=0x7F). Returns
-    /// false if the byte hit a typed slot but failed validation, so the
-    /// caller can route it to `unknown_bytes` instead.
-    fn store_byte(&mut self, off: u8, b: u8) -> bool {
-        match off {
+    /// Try to absorb a single byte at linear offset `linear` (0..=255).
+    /// Returns false if the byte hit a typed slot but failed validation,
+    /// so the caller can route it to `unknown_bytes` instead.
+    fn store_byte(&mut self, linear: u16, b: u8) -> bool {
+        match linear {
             0x00 if b <= 100 => {
                 self.chorus_send = Some(b);
                 true
@@ -994,20 +1005,21 @@ impl Mfx {
                 self.eq_level = Some(b);
                 true
             }
-            // Type-specific tail — deferred sum-type modelling.
-            0x12..=0x7F => {
-                self.raw_tail.insert(off, b);
+            // Type-specific tail — see Mfx docstring + mfx_params table.
+            0x12..=0xFF => {
+                self.raw_tail.insert(linear, b);
                 true
             }
             _ => false,
         }
     }
 
-    fn emit_bytes(&self, bytes: &mut BTreeMap<[u8; 4], u8>, base_msb: u8, page: u8) {
+    fn emit_bytes(&self, bytes: &mut BTreeMap<[u8; 4], u8>, base_msb: u8) {
         macro_rules! put {
-            ($off:expr, $val:expr) => {
+            ($linear:expr, $val:expr) => {
                 if let Some(v) = $val {
-                    bytes.insert([base_msb, page, 0x00, $off], v);
+                    let (page, off) = mfx_address_split($linear);
+                    bytes.insert([base_msb, page, 0x00, off], v);
                 }
             };
         }
@@ -1029,14 +1041,63 @@ impl Mfx {
         put!(0x0F, self.eq_high_freq.map(EqHighFreq::to_byte));
         put!(0x10, self.eq_high_gain);
         put!(0x11, self.eq_level);
-        for (off, b) in &self.raw_tail {
-            bytes.insert([base_msb, page, 0x00, *off], *b);
+        for (linear, b) in &self.raw_tail {
+            let (page, off) = mfx_address_split(*linear);
+            bytes.insert([base_msb, page, 0x00, off], *b);
         }
+    }
+
+    /// The MFX type currently selected. `None` if the type byte isn't set
+    /// or holds an out-of-range value.
+    pub fn active_type(&self) -> Option<MfxType> {
+        self.mfx_type
+    }
+
+    /// Iterate every (linear, byte, param_entry) triple this MFX holds —
+    /// typed fields plus raw_tail bytes — paired with their FloorBoard
+    /// metadata. Useful for editors that want to render every parameter
+    /// with its name and owning type.
+    pub fn iter_params(&self) -> impl Iterator<Item = (u16, u8, &'static crate::mfx_params::MfxParamEntry)> + '_ {
+        // Build a quick lookup of which linear offsets the typed fields
+        // occupy so we know to fall back to raw_tail for the rest.
+        let typed = [
+            (0x00, self.chorus_send),
+            (0x01, self.delay_send),
+            (0x02, self.reverb_send),
+            (0x03, self.reserved),
+            (0x04, self.switch.map(OnOff::to_byte)),
+            (0x05, self.mfx_type.map(MfxType::to_byte)),
+            (0x06, self.pan),
+            (0x07, self.eq_low_freq.map(EqLowFreq::to_byte)),
+            (0x08, self.eq_low_gain),
+            (0x09, self.eq_mid1_freq.map(EqMidFreq::to_byte)),
+            (0x0A, self.eq_mid1_gain),
+            (0x0B, self.eq_mid1_q.map(EqMidQ::to_byte)),
+            (0x0C, self.eq_mid2_freq.map(EqMidFreq::to_byte)),
+            (0x0D, self.eq_mid2_gain),
+            (0x0E, self.eq_mid2_q.map(EqMidQ::to_byte)),
+            (0x0F, self.eq_high_freq.map(EqHighFreq::to_byte)),
+            (0x10, self.eq_high_gain),
+            (0x11, self.eq_level),
+        ];
+        typed
+            .into_iter()
+            .filter_map(|(lin, v)| v.map(|b| (lin as u16, b, &crate::mfx_params::MFX_PARAMS[lin as usize])))
+            .chain(self.raw_tail.iter().map(|(&lin, &b)| {
+                (lin, b, &crate::mfx_params::MFX_PARAMS[lin as usize])
+            }))
     }
 }
 
-fn all_mfx_none(arr: &[Option<Mfx>; 2]) -> bool {
-    arr.iter().all(Option::is_none)
+/// Split a linear MFX offset (0..=255) into the wire (page, offset)
+/// pair. Page `0x03` covers linear `0..=127`; page `0x04` covers
+/// `128..=255`.
+fn mfx_address_split(linear: u16) -> (u8, u8) {
+    if linear < 128 {
+        (0x03, linear as u8)
+    } else {
+        (0x04, (linear - 128) as u8)
+    }
 }
 
 /// Linear PCM tone index (0..=909) for the 910 named tones in the GR-55
@@ -3431,13 +3492,14 @@ pub struct PatchArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gk_vol_mod_max_envelope: Option<u8>,
 
-    /// The 2 MFX slots: `mfx[0]` lives on page `0x03`, `mfx[1]` on page
-    /// `0x04`. Each Mfx holds the typed common header + EQ block at
-    /// offsets `0x00..=0x11`; the MFX-type-dependent tail at `0x12..=0x7F`
-    /// is preserved verbatim in `Mfx::raw_tail` pending sum-type
-    /// modelling.
-    #[serde(default, skip_serializing_if = "all_mfx_none")]
-    pub mfx: [Option<Mfx>; 2],
+    /// The single MFX slot. Its data spans pages `0x03` (linear
+    /// `0..=127`) and `0x04` (linear `128..=255`) — page `0x04`'s
+    /// misleading "MFX 2" LSB label notwithstanding, FloorBoard
+    /// `midi.xml` places effect parameters disjointly across the two
+    /// pages; per [`crate::mfx_params`] the 256-byte block holds 20
+    /// effect types' parameter ranges with no overlap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mfx: Option<Mfx>,
 
     // ---- Page 0x06: Chorus / Delay / Reverb / EQ (offsets 0x00..=0x1D) ----
     /// Chorus switch at `0x06:00:00`.
@@ -3940,11 +4002,19 @@ impl PatchArea {
             (0x02, 0x00, 0x45) if b <= 127 => self.exp_on_mod_max_envelope = Some(b),
             (0x02, 0x00, 0x46) if b <= 127 => self.gk_vol_mod_min_envelope = Some(b),
             (0x02, 0x00, 0x47) if b <= 127 => self.gk_vol_mod_max_envelope = Some(b),
-            // MFX slots: page 0x03 = mfx[0], page 0x04 = mfx[1].
-            (0x03, 0x00, off) | (0x04, 0x00, off) => {
-                let idx = (page - 0x03) as usize;
-                let mfx = self.mfx[idx].get_or_insert_with(Mfx::default);
-                if !mfx.store_byte(off, b) {
+            // Single MFX slot — pages 0x03 (linear 0..=127) and 0x04
+            // (linear 128..=255) feed into the same buffer.
+            (0x03, 0x00, off) => {
+                let linear = off as u16;
+                let mfx = self.mfx.get_or_insert_with(Mfx::default);
+                if !mfx.store_byte(linear, b) {
+                    self.unknown_bytes.insert(format_key(page, hi, lo), b);
+                }
+            }
+            (0x04, 0x00, off) => {
+                let linear = 128 + off as u16;
+                let mfx = self.mfx.get_or_insert_with(Mfx::default);
+                if !mfx.store_byte(linear, b) {
                     self.unknown_bytes.insert(format_key(page, hi, lo), b);
                 }
             }
@@ -4491,11 +4561,9 @@ impl PatchArea {
         if let Some(v) = self.gk_vol_mod_max_envelope {
             bytes.insert([base_msb, 0x02, 0x00, 0x47], v);
         }
-        // MFX slots
-        for (idx, slot) in self.mfx.iter().enumerate() {
-            if let Some(mfx) = slot {
-                mfx.emit_bytes(&mut bytes, base_msb, 0x03 + idx as u8);
-            }
+        // Single MFX slot — emits bytes to both page 0x03 and 0x04.
+        if let Some(mfx) = &self.mfx {
+            mfx.emit_bytes(&mut bytes, base_msb);
         }
         // Page 0x06
         if let Some(v) = self.chorus_switch {
@@ -5407,7 +5475,7 @@ mod tests {
             data: Cow::Owned(payload),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
-        let m = area.mfx[0].as_ref().expect("mfx[0] should decode");
+        let m = area.mfx.as_ref().expect("mfx should decode");
         assert_eq!(m.chorus_send, Some(70));
         assert_eq!(m.delay_send, Some(45));
         assert_eq!(m.reverb_send, Some(30));
@@ -5424,10 +5492,9 @@ mod tests {
         assert_eq!(m.eq_high_freq, Some(EqHighFreq::Khz4_0));
         assert_eq!(m.eq_high_gain, Some(0x14));
         assert_eq!(m.eq_level, Some(0x60));
-        // Type-specific tail survived in raw_tail.
+        // Type-specific tail survived in raw_tail, keyed by linear offset.
         assert_eq!(m.raw_tail.get(&0x12), Some(&0xC1));
         assert_eq!(m.raw_tail.get(&0x16), Some(&0xC5));
-        assert!(area.mfx[1].is_none());
 
         // Round-trip
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
@@ -5801,18 +5868,27 @@ mod tests {
     }
 
     #[test]
-    fn mfx_slot_1_lives_on_page_04() {
-        // A single byte at page 0x04 should populate mfx[1], not mfx[0].
+    fn mfx_page_04_lands_in_the_same_single_mfx_slot() {
+        // A byte at page 0x04 offset 0x05 lands at linear offset 0x85
+        // of the same single MFX slot — page 0x04 is NOT a separate MFX,
+        // it's the continuation of MFX 1's parameter region. The byte
+        // at linear 0x85 belongs to the Flanger effect type per the
+        // mfx_params table.
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x04, 0x00, 0x05], // MFX 2, type byte
-            data: Cow::Owned(vec![MfxType::Compressor.to_byte()]),
+            address: [TEMP_MSB, 0x04, 0x00, 0x05],
+            data: Cow::Owned(vec![0x42]),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
-        assert!(area.mfx[0].is_none());
+        let mfx = area.mfx.as_ref().expect("single mfx slot should populate");
+        assert_eq!(mfx.raw_tail.get(&0x85), Some(&0x42));
+        // Verify the param table identifies this byte as Flanger-owned.
+        let entry = &crate::mfx_params::MFX_PARAMS[0x85];
+        assert_eq!(entry.page, 0x04);
+        assert_eq!(entry.offset, 0x05);
         assert_eq!(
-            area.mfx[1].as_ref().unwrap().mfx_type,
-            Some(MfxType::Compressor)
+            entry.owning_type,
+            Some(crate::mfx_params::MfxTypeOwner::Flanger)
         );
     }
 
