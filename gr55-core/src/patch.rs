@@ -382,6 +382,424 @@ impl ExpSwFunction {
     }
 }
 
+/// Master Assign Source (one of 9 hardware controllers or one of 63 MIDI CCs).
+///
+/// FloorBoard `midi.xml` lays this out at byte values `0x00..=0x47` (72
+/// codepoints) where bytes `0x09..=0x27` map to CC#01..=CC#31 and
+/// `0x28..=0x47` map to CC#64..=CC#95. The wrapped `MidiCc(u8)` carries the
+/// CC number directly; `from_byte` enforces the 1..=31 or 64..=95
+/// constraint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "cc")]
+pub enum AssignSource {
+    CtrlPdl,
+    ExpPdl,
+    ExpPdlOn,
+    ExpPdlSw,
+    IntPedal,
+    WavePedal,
+    GkS1,
+    GkS2,
+    GkVol,
+    MidiCc(u8),
+}
+
+impl AssignSource {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use AssignSource::*;
+        Some(match b {
+            0x00 => CtrlPdl,
+            0x01 => ExpPdl,
+            0x02 => ExpPdlOn,
+            0x03 => ExpPdlSw,
+            0x04 => IntPedal,
+            0x05 => WavePedal,
+            0x06 => GkS1,
+            0x07 => GkS2,
+            0x08 => GkVol,
+            0x09..=0x27 => MidiCc(b - 0x08),         // CC#01..=CC#31
+            0x28..=0x47 => MidiCc(b - 0x28 + 0x40),  // CC#64..=CC#95
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use AssignSource::*;
+        match self {
+            CtrlPdl => 0x00,
+            ExpPdl => 0x01,
+            ExpPdlOn => 0x02,
+            ExpPdlSw => 0x03,
+            IntPedal => 0x04,
+            WavePedal => 0x05,
+            GkS1 => 0x06,
+            GkS2 => 0x07,
+            GkVol => 0x08,
+            MidiCc(cc) if (1..=31).contains(&cc) => 0x08 + cc,
+            MidiCc(cc) if (64..=95).contains(&cc) => 0x28 + (cc - 0x40),
+            // Caller guaranteed a valid CC; if not, fall back to 0 (Off-ish).
+            // The new() validator below is the recommended construction path.
+            MidiCc(_) => 0x00,
+        }
+    }
+    /// Validated constructor for `MidiCc` — accepts CC numbers 1..=31 or 64..=95.
+    pub fn midi_cc(cc: u8) -> Option<Self> {
+        if (1..=31).contains(&cc) || (64..=95).contains(&cc) {
+            Some(AssignSource::MidiCc(cc))
+        } else {
+            None
+        }
+    }
+}
+
+/// Assign Source Mode — how the source maps to its target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssignSourceMode {
+    Moment,
+    Toggle,
+}
+
+impl AssignSourceMode {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Moment),
+            0x01 => Some(Self::Toggle),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::Moment => 0x00,
+            Self::Toggle => 0x01,
+        }
+    }
+}
+
+/// Internal pedal trigger source for the Assign's Int Pedal.
+///
+/// 11 logical variants. **Note:** FloorBoard `midi.xml` ships a typo
+/// here — both `EXP PDL SW` and `GK S1` are listed as `value="08"`, with
+/// `value="09"` missing. The intended mapping is sequential: GK S1 = 0x09,
+/// GK S2 = 0x0A. We encode that intended layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssignInternalTrigger {
+    PatchChange,
+    CtrlPdl,
+    Exp1PdlLow,
+    Exp1PdlMid,
+    Exp1PdlHigh,
+    Exp1PdlOnLow,
+    Exp1PdlOnMid,
+    Exp1PdlOnHigh,
+    ExpPdlSw,
+    GkS1,
+    GkS2,
+}
+
+impl AssignInternalTrigger {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use AssignInternalTrigger::*;
+        Some(match b {
+            0x00 => PatchChange,
+            0x01 => CtrlPdl,
+            0x02 => Exp1PdlLow,
+            0x03 => Exp1PdlMid,
+            0x04 => Exp1PdlHigh,
+            0x05 => Exp1PdlOnLow,
+            0x06 => Exp1PdlOnMid,
+            0x07 => Exp1PdlOnHigh,
+            0x08 => ExpPdlSw,
+            0x09 => GkS1,
+            0x0A => GkS2,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use AssignInternalTrigger::*;
+        match self {
+            PatchChange => 0x00,
+            CtrlPdl => 0x01,
+            Exp1PdlLow => 0x02,
+            Exp1PdlMid => 0x03,
+            Exp1PdlHigh => 0x04,
+            Exp1PdlOnLow => 0x05,
+            Exp1PdlOnMid => 0x06,
+            Exp1PdlOnHigh => 0x07,
+            ExpPdlSw => 0x08,
+            GkS1 => 0x09,
+            GkS2 => 0x0A,
+        }
+    }
+}
+
+/// Internal-pedal acceleration curve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssignIntPdlCurve {
+    Linear,
+    SlowRise,
+    FastRise,
+}
+
+impl AssignIntPdlCurve {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Linear),
+            0x01 => Some(Self::SlowRise),
+            0x02 => Some(Self::FastRise),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::Linear => 0x00,
+            Self::SlowRise => 0x01,
+            Self::FastRise => 0x02,
+        }
+    }
+}
+
+/// Wave-pedal LFO waveform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssignWaveForm {
+    Saw,
+    Triangle,
+    Sine,
+}
+
+impl AssignWaveForm {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Saw),
+            0x01 => Some(Self::Triangle),
+            0x02 => Some(Self::Sine),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::Saw => 0x00,
+            Self::Triangle => 0x01,
+            Self::Sine => 0x02,
+        }
+    }
+}
+
+/// One Master Assign slot. The GR-55 has 8 of these (`PatchArea::master_assigns`).
+///
+/// Each slot is a 19-byte block that binds an external source (pedal /
+/// switch / MIDI CC) to a patch target with optional min/max, range, and
+/// internal-pedal envelope. Target / Min / Max each occupy three
+/// consecutive bytes whose semantics aren't fully captured by FloorBoard
+/// `midi.xml` (only the first byte of each triple has a `customdesc`); the
+/// other two are kept as `Option<u8>` companion bytes so the round-trip is
+/// lossless.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Assign {
+    /// On/Off at offset +0x00.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_off: Option<OnOff>,
+    /// Target (3 bytes at +0x01..+0x03; only the first has `customdesc`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_b: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_c: Option<u8>,
+    /// Min (3 bytes at +0x04..+0x06).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_b: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_c: Option<u8>,
+    /// Max (3 bytes at +0x07..+0x09).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_b: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_c: Option<u8>,
+    /// Source at +0x0A.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<AssignSource>,
+    /// Source mode at +0x0B.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_mode: Option<AssignSourceMode>,
+    /// Range Low at +0x0C (raw 0..=126).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range_low: Option<u8>,
+    /// Range High at +0x0D (raw 1..=127).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range_high: Option<u8>,
+    /// Internal pedal trigger at +0x0E.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub internal_trigger: Option<AssignInternalTrigger>,
+    /// Internal pedal time at +0x0F (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub int_pdl_time: Option<u8>,
+    /// Internal pedal curve at +0x10.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub int_pdl_curve: Option<AssignIntPdlCurve>,
+    /// Wave Rate at +0x11 — raw 0..=100 OR a named note-value 0x65..=0x71.
+    /// Kept as `Option<u8>` for now; range-guarded to 0x00..=0x71.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wave_rate: Option<u8>,
+    /// Wave form at +0x12.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wave_form: Option<AssignWaveForm>,
+}
+
+impl Assign {
+    /// Store a single byte into the slot identified by `byte_in_assign` (an
+    /// offset 0..=18 relative to the assign's first address). Returns false
+    /// if the typed decode rejects the byte (out of range, invalid enum
+    /// variant, etc.) so the caller can route it to `unknown_bytes`.
+    fn store_byte(&mut self, byte_in_assign: u8, b: u8) -> bool {
+        match byte_in_assign {
+            0x00 => match OnOff::from_byte(b) {
+                Some(v) => {
+                    self.on_off = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x01 if b <= 0x0F => {
+                self.target = Some(b);
+                true
+            }
+            0x02 if b <= 0x0F => {
+                self.target_b = Some(b);
+                true
+            }
+            0x03 if b <= 0x0F => {
+                self.target_c = Some(b);
+                true
+            }
+            0x04 if b <= 0x0F => {
+                self.min = Some(b);
+                true
+            }
+            0x05 if b <= 0x0F => {
+                self.min_b = Some(b);
+                true
+            }
+            0x06 if b <= 0x0F => {
+                self.min_c = Some(b);
+                true
+            }
+            0x07 if b <= 0x0F => {
+                self.max = Some(b);
+                true
+            }
+            0x08 if b <= 0x0F => {
+                self.max_b = Some(b);
+                true
+            }
+            0x09 if b <= 0x0F => {
+                self.max_c = Some(b);
+                true
+            }
+            0x0A => match AssignSource::from_byte(b) {
+                Some(v) => {
+                    self.source = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x0B => match AssignSourceMode::from_byte(b) {
+                Some(v) => {
+                    self.source_mode = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x0C if b <= 126 => {
+                self.range_low = Some(b);
+                true
+            }
+            0x0D if (1..=127).contains(&b) => {
+                self.range_high = Some(b);
+                true
+            }
+            0x0E => match AssignInternalTrigger::from_byte(b) {
+                Some(v) => {
+                    self.internal_trigger = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x0F if b <= 100 => {
+                self.int_pdl_time = Some(b);
+                true
+            }
+            0x10 => match AssignIntPdlCurve::from_byte(b) {
+                Some(v) => {
+                    self.int_pdl_curve = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x11 if b <= 0x71 => {
+                self.wave_rate = Some(b);
+                true
+            }
+            0x12 => match AssignWaveForm::from_byte(b) {
+                Some(v) => {
+                    self.wave_form = Some(v);
+                    true
+                }
+                None => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// Append this assign's bytes to the encode-side map. `base_lo` is the
+    /// lo byte of the assign's first address; `byte_in_assign` 0..=18 maps
+    /// to `base_lo..=base_lo+18` within the same page.
+    fn emit_bytes(
+        &self,
+        bytes: &mut BTreeMap<[u8; 4], u8>,
+        base_msb: u8,
+        page: u8,
+        base_lo: u8,
+    ) {
+        macro_rules! put {
+            ($off:expr, $val:expr) => {
+                if let Some(v) = $val {
+                    bytes.insert([base_msb, page, 0x00, base_lo + $off], v);
+                }
+            };
+        }
+        put!(0x00, self.on_off.map(OnOff::to_byte));
+        put!(0x01, self.target);
+        put!(0x02, self.target_b);
+        put!(0x03, self.target_c);
+        put!(0x04, self.min);
+        put!(0x05, self.min_b);
+        put!(0x06, self.min_c);
+        put!(0x07, self.max);
+        put!(0x08, self.max_b);
+        put!(0x09, self.max_c);
+        put!(0x0A, self.source.map(AssignSource::to_byte));
+        put!(0x0B, self.source_mode.map(AssignSourceMode::to_byte));
+        put!(0x0C, self.range_low);
+        put!(0x0D, self.range_high);
+        put!(0x0E, self.internal_trigger.map(AssignInternalTrigger::to_byte));
+        put!(0x0F, self.int_pdl_time);
+        put!(0x10, self.int_pdl_curve.map(AssignIntPdlCurve::to_byte));
+        put!(0x11, self.wave_rate);
+        put!(0x12, self.wave_form.map(AssignWaveForm::to_byte));
+    }
+}
+
+fn all_assigns_none(arr: &[Option<Assign>; 8]) -> bool {
+    arr.iter().all(Option::is_none)
+}
+
 /// Typed view of a single GR-55 patch payload. MSB-agnostic — the caller
 /// supplies the base MSB when decoding or encoding.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -700,6 +1118,14 @@ pub struct PatchArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gk_s2_tone_sw_on_normal_pu: Option<OnOff>,
 
+    /// The 8 Master Assigns. Assigns 1-6 live entirely on page `0x01`
+    /// (each is 19 bytes; Assign1 starts at `0x01:00:0C`, Assign2 at
+    /// `0x01:00:1F`, ..., Assign6 at `0x01:00:6B`). Assigns 7 and 8 are
+    /// added in a follow-up commit (they span the `0x01 → 0x02` page
+    /// boundary).
+    #[serde(default, skip_serializing_if = "all_assigns_none")]
+    pub master_assigns: [Option<Assign>; 8],
+
     /// Everything inside the patch payload that the typed model doesn't yet
     /// cover. Keys are formatted `"PP:HH:LL"` — page byte, then the two
     /// in-page offset bytes.
@@ -878,6 +1304,16 @@ impl PatchArea {
             (0x01, 0x00, 0x09) => self.gk_s2_tone_sw_on_pcm_2 = OnOff::from_byte(b),
             (0x01, 0x00, 0x0A) => self.gk_s2_tone_sw_on_modeling = OnOff::from_byte(b),
             (0x01, 0x00, 0x0B) => self.gk_s2_tone_sw_on_normal_pu = OnOff::from_byte(b),
+            // Master Assigns 1-6 (page 0x01 offsets 0x0C..=0x7D).
+            (0x01, 0x00, lo) if (0x0C..=0x7D).contains(&lo) => {
+                let off = (lo - 0x0C) as usize;
+                let idx = off / 19;
+                let bia = (off % 19) as u8;
+                let assign = self.master_assigns[idx].get_or_insert_with(Assign::default);
+                if !assign.store_byte(bia, b) {
+                    self.unknown_bytes.insert(format_key(page, hi, lo), b);
+                }
+            }
             _ => {
                 self.unknown_bytes.insert(format_key(page, hi, lo), b);
             }
@@ -1233,6 +1669,13 @@ impl PatchArea {
         }
         if let Some(v) = self.gk_s2_tone_sw_on_normal_pu {
             bytes.insert([base_msb, 0x01, 0x00, 0x0B], v.to_byte());
+        }
+        // Master Assigns 1-6
+        for (idx, slot) in self.master_assigns[..6].iter().enumerate() {
+            if let Some(assign) = slot {
+                let base_lo = 0x0C_u8 + (idx as u8) * 19;
+                assign.emit_bytes(&mut bytes, base_msb, 0x01, base_lo);
+            }
         }
         for (k, b) in &self.unknown_bytes {
             let (page, hi, lo) =
@@ -1669,6 +2112,96 @@ mod tests {
         assert_eq!(area.unknown_bytes.get("04:01:00"), Some(&0xA3));
         // The wrong (overflow-to-0x80) behaviour would surface here:
         assert!(!area.unknown_bytes.contains_key("04:00:80"));
+    }
+
+    #[test]
+    fn master_assign_1_decodes_typed_fields() {
+        let payload: Vec<u8> = vec![
+            OnOff::On.to_byte(),                            // +0x00 on_off
+            0x05,                                           // +0x01 target
+            0x00,                                           // +0x02 target_b
+            0x00,                                           // +0x03 target_c
+            0x00,                                           // +0x04 min
+            0x00,                                           // +0x05 min_b
+            0x00,                                           // +0x06 min_c
+            0x0F,                                           // +0x07 max
+            0x00,                                           // +0x08 max_b
+            0x00,                                           // +0x09 max_c
+            AssignSource::ExpPdl.to_byte(),                 // +0x0A source
+            AssignSourceMode::Toggle.to_byte(),             // +0x0B source_mode
+            0x00,                                           // +0x0C range_low
+            0x7F,                                           // +0x0D range_high
+            AssignInternalTrigger::PatchChange.to_byte(),   // +0x0E internal_trigger
+            0x50,                                           // +0x0F int_pdl_time
+            AssignIntPdlCurve::SlowRise.to_byte(),          // +0x10 int_pdl_curve
+            0x6B,                                           // +0x11 wave_rate (= quarter note)
+            AssignWaveForm::Triangle.to_byte(),             // +0x12 wave_form
+        ];
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x01, 0x00, 0x0C], // Assign1 base
+            data: Cow::Owned(payload),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+
+        let a1 = area.master_assigns[0]
+            .as_ref()
+            .expect("Assign1 should decode");
+        assert_eq!(a1.on_off, Some(OnOff::On));
+        assert_eq!(a1.target, Some(0x05));
+        assert_eq!(a1.max, Some(0x0F));
+        assert_eq!(a1.source, Some(AssignSource::ExpPdl));
+        assert_eq!(a1.source_mode, Some(AssignSourceMode::Toggle));
+        assert_eq!(a1.range_low, Some(0x00));
+        assert_eq!(a1.range_high, Some(0x7F));
+        assert_eq!(a1.internal_trigger, Some(AssignInternalTrigger::PatchChange));
+        assert_eq!(a1.int_pdl_time, Some(0x50));
+        assert_eq!(a1.int_pdl_curve, Some(AssignIntPdlCurve::SlowRise));
+        assert_eq!(a1.wave_rate, Some(0x6B));
+        assert_eq!(a1.wave_form, Some(AssignWaveForm::Triangle));
+        assert!(area.master_assigns[1].is_none());
+        assert!(area.unknown_bytes.is_empty());
+
+        // Round-trip preserves every typed byte.
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
+    }
+
+    #[test]
+    fn master_assign_6_lands_at_expected_offset() {
+        // Assign6 starts at lo = 0x0C + 5*19 = 0x6B.
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x01, 0x00, 0x6B],
+            data: Cow::Owned(vec![OnOff::On.to_byte()]),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+        assert!(area.master_assigns[5].is_some());
+        assert_eq!(area.master_assigns[5].as_ref().unwrap().on_off, Some(OnOff::On));
+        for i in [0, 1, 2, 3, 4, 6, 7] {
+            assert!(area.master_assigns[i].is_none(), "slot {i} should be None");
+        }
+    }
+
+    #[test]
+    fn assign_source_midi_cc_round_trips() {
+        for cc in [1, 15, 31, 64, 80, 95] {
+            let src = AssignSource::midi_cc(cc).unwrap();
+            assert_eq!(AssignSource::from_byte(src.to_byte()), Some(src));
+        }
+        assert!(AssignSource::midi_cc(0).is_none());
+        assert!(AssignSource::midi_cc(32).is_none()); // gap between CC#31 and CC#64
+        assert!(AssignSource::midi_cc(63).is_none());
+        assert!(AssignSource::midi_cc(96).is_none());
+    }
+
+    #[test]
+    fn assign_internal_trigger_byte_symmetry() {
+        for raw in 0x00_u8..=0x0A {
+            let v = AssignInternalTrigger::from_byte(raw).expect("from_byte");
+            assert_eq!(v.to_byte(), raw, "mismatch for 0x{raw:02X}");
+        }
+        assert!(AssignInternalTrigger::from_byte(0x0B).is_none());
     }
 
     #[test]
