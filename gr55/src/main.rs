@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use gr55_core::patch::PatchArea;
 use gr55_core::sysex::{Frame, SOX};
 use gr55_core::SystemArea;
 
@@ -23,21 +24,58 @@ fn main() -> Result<()> {
         Command::Ports => list_ports(),
         Command::Identity => identity(&cli, timeout),
         Command::Dump { target, output } => {
-            assert!(target.system, "only --system is wired in v1");
-            dump_system(&cli, output, timeout)
+            if target.system {
+                dump_system(&cli, output, timeout)
+            } else if target.temp_patch {
+                dump_patch(&cli, output, temp_patch_base(), timeout)
+            } else if let Some(slot) = target.user_patch {
+                dump_patch(&cli, output, user_patch_base(slot)?, timeout)
+            } else {
+                anyhow::bail!("no dump target selected (use --system, --temp-patch, or --user-patch)")
+            }
         }
         Command::Sync {
             target,
             input,
             verify,
         } => {
-            assert!(target.system, "only --system is wired in v1");
-            sync_system(&cli, input, *verify, timeout)
+            if target.system {
+                sync_system(&cli, input, *verify, timeout)
+            } else if target.temp_patch {
+                sync_patch(&cli, input, *verify, temp_patch_base(), timeout)
+            } else if let Some(slot) = target.user_patch {
+                sync_patch(&cli, input, *verify, user_patch_base(slot)?, timeout)
+            } else {
+                anyhow::bail!("no sync target selected (use --system, --temp-patch, or --user-patch)")
+            }
         }
-        Command::Show { file } => show(file),
-        Command::Lint { file } => lint(file),
-        Command::Diff { a, b } => diff(a, b),
+        Command::Show { patch, file } => show(*patch, file),
+        Command::Lint { patch, file } => lint(*patch, file),
+        Command::Diff { patch, a, b } => diff(*patch, a, b),
+        Command::ImportG5l {
+            input,
+            slot,
+            output,
+        } => import_g5l(input, *slot, output),
     }
+}
+
+/// Live current-patch (TEMP) RAM base address.
+fn temp_patch_base() -> [u8; 4] {
+    [0x18, 0x00, 0x00, 0x00]
+}
+
+/// USER patch slot base address per VController's hardware-tested encoding:
+/// `0x20000001 + ((N / 0x80) * 0x01000000) + ((N % 0x80) * 0x00010000)`.
+/// The `0x01` low-byte offset there is the patch-name field; for whole-patch
+/// reads we drop it back to `0x00` so the request starts at mode/name.
+fn user_patch_base(slot: u16) -> Result<[u8; 4]> {
+    if slot >= 297 {
+        anyhow::bail!("USER patch slot {slot} is out of range (0-296)");
+    }
+    let hi = (slot / 0x80) as u8;
+    let lo = (slot % 0x80) as u8;
+    Ok([0x20, hi, lo, 0x00])
 }
 
 fn session(cli: &Cli) -> Result<MidiSession> {
@@ -180,52 +218,185 @@ fn sync_system(cli: &Cli, input: &Path, verify: bool, timeout: Duration) -> Resu
     Ok(())
 }
 
-fn show(file: &Path) -> Result<()> {
-    let area = yaml_io::load_system_area(file)?;
-    println!("# {}", file.display());
-    println!("# typed fields: {}", typed_field_count(&area));
-    println!("# unknown bytes: {}", area.unknown_bytes.len());
-    println!();
-    let yaml = serde_yaml::to_string(&area)?;
-    print!("{yaml}");
-    Ok(())
-}
-
-fn lint(file: &Path) -> Result<()> {
-    let area = yaml_io::load_system_area(file)?;
-    let _frames = area
-        .to_frames(0x10)
-        .context("re-encoding to DT1 frames (would fail on a real sync)")?;
-    println!(
-        "{}: OK ({} typed fields, {} unknown bytes)",
-        file.display(),
-        typed_field_count(&area),
-        area.unknown_bytes.len()
-    );
-    Ok(())
-}
-
-fn diff(a_path: &Path, b_path: &Path) -> Result<()> {
-    let a = yaml_io::load_system_area(a_path)?;
-    let b = yaml_io::load_system_area(b_path)?;
-    if a == b {
-        println!(
-            "{} and {} are equivalent.",
-            a_path.display(),
-            b_path.display()
+/// Read a whole patch starting at `base` (TEMP `[0x18, 0x00, 0x00, 0x00]`
+/// or USER `[0x20, hi, lo, 0x00]`) and write it as YAML. One RQ1 spanning
+/// every block (`0x00..=0x31`) — the GR-55 responds with a sequence of
+/// DT1 frames covering the populated blocks.
+fn dump_patch(cli: &Cli, output: &Path, base: [u8; 4], timeout: Duration) -> Result<()> {
+    let mut sess = session(cli)?;
+    let frames = read_full_patch(&mut sess, base, timeout)?;
+    if frames.is_empty() {
+        anyhow::bail!(
+            "no DT1 replies received from base {:02X?}; try `gr55 identity` to confirm the port wiring",
+            base
         );
-        return Ok(());
     }
-    let diffs = field_diffs(&a, &b);
-    println!(
-        "{} vs {} ({} differing field(s)):",
-        a_path.display(),
-        b_path.display(),
-        diffs.len()
+    let area = PatchArea::from_frames_at(&frames, base[0]);
+    yaml_io::save_patch_area(output, &area)?;
+    eprintln!(
+        "dumped patch at MSB 0x{:02X} (base {:02X?}) to {} ({} unknown bytes)",
+        base[0],
+        base,
+        if output == Path::new("-") {
+            "<stdout>".to_string()
+        } else {
+            output.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string()
+        },
+        area.unknown_bytes.len(),
     );
-    for line in &diffs {
-        println!("  {line}");
+    Ok(())
+}
+
+fn sync_patch(
+    cli: &Cli,
+    input: &Path,
+    verify: bool,
+    base: [u8; 4],
+    timeout: Duration,
+) -> Result<()> {
+    let area = yaml_io::load_patch_area(input)?;
+    let frames = area
+        .to_frames(cli.device_id, base[0])
+        .context("encoding PatchArea to DT1 frames")?;
+    let mut sess = session(cli)?;
+    for frame in &frames {
+        sess.send_frame(frame)?;
     }
+    eprintln!("sent {} DT1 frames to MSB 0x{:02X}", frames.len(), base[0]);
+    if verify {
+        let frames = read_full_patch(&mut sess, base, timeout)?;
+        let back = PatchArea::from_frames_at(&frames, base[0]);
+        if back == area {
+            eprintln!("verify: OK (round-trip matches)");
+        } else {
+            anyhow::bail!("verify: mismatch on patch at MSB 0x{:02X}", base[0]);
+        }
+    }
+    Ok(())
+}
+
+/// Read one patch's worth of DT1 frames by issuing a single large RQ1 at
+/// `base`. Size `0x3200` (= 12800 bytes) is well above the total patch
+/// footprint and lets the device respond with whatever blocks exist.
+fn read_full_patch(
+    sess: &mut MidiSession,
+    base: [u8; 4],
+    timeout: Duration,
+) -> Result<Vec<Frame<'static>>> {
+    sess.read_block(base, 0x3200, timeout)
+}
+
+fn show(patch: bool, file: &Path) -> Result<()> {
+    if patch {
+        let area = yaml_io::load_patch_area(file)?;
+        println!("# {}", file.display());
+        println!("# unknown bytes: {}", area.unknown_bytes.len());
+        println!();
+        let yaml = serde_yaml::to_string(&area)?;
+        print!("{yaml}");
+    } else {
+        let area = yaml_io::load_system_area(file)?;
+        println!("# {}", file.display());
+        println!("# typed fields: {}", typed_field_count(&area));
+        println!("# unknown bytes: {}", area.unknown_bytes.len());
+        println!();
+        let yaml = serde_yaml::to_string(&area)?;
+        print!("{yaml}");
+    }
+    Ok(())
+}
+
+fn lint(patch: bool, file: &Path) -> Result<()> {
+    if patch {
+        let area = yaml_io::load_patch_area(file)?;
+        // Re-encode at MSB 0x18 (TEMP) — the actual MSB at sync time
+        // doesn't affect whether encoding succeeds.
+        let _frames = area
+            .to_frames(0x10, 0x18)
+            .context("re-encoding PatchArea to DT1 frames")?;
+        println!(
+            "{}: OK (patch, {} unknown bytes)",
+            file.display(),
+            area.unknown_bytes.len()
+        );
+    } else {
+        let area = yaml_io::load_system_area(file)?;
+        let _frames = area
+            .to_frames(0x10)
+            .context("re-encoding to DT1 frames (would fail on a real sync)")?;
+        println!(
+            "{}: OK ({} typed fields, {} unknown bytes)",
+            file.display(),
+            typed_field_count(&area),
+            area.unknown_bytes.len()
+        );
+    }
+    Ok(())
+}
+
+fn diff(patch: bool, a_path: &Path, b_path: &Path) -> Result<()> {
+    if patch {
+        let a = yaml_io::load_patch_area(a_path)?;
+        let b = yaml_io::load_patch_area(b_path)?;
+        if a == b {
+            println!(
+                "{} and {} are equivalent.",
+                a_path.display(),
+                b_path.display()
+            );
+            return Ok(());
+        }
+        let diffs = patch_field_diffs(&a, &b);
+        println!(
+            "{} vs {} ({} differing line(s)):",
+            a_path.display(),
+            b_path.display(),
+            diffs.len()
+        );
+        for line in &diffs {
+            println!("  {line}");
+        }
+    } else {
+        let a = yaml_io::load_system_area(a_path)?;
+        let b = yaml_io::load_system_area(b_path)?;
+        if a == b {
+            println!(
+                "{} and {} are equivalent.",
+                a_path.display(),
+                b_path.display()
+            );
+            return Ok(());
+        }
+        let diffs = field_diffs(&a, &b);
+        println!(
+            "{} vs {} ({} differing field(s)):",
+            a_path.display(),
+            b_path.display(),
+            diffs.len()
+        );
+        for line in &diffs {
+            println!("  {line}");
+        }
+    }
+    Ok(())
+}
+
+fn import_g5l(input: &Path, slot: usize, output: &Path) -> Result<()> {
+    let bytes = std::fs::read(input)
+        .with_context(|| format!("reading {}", input.display()))?;
+    let patches = gr55_core::g5l::parse(&bytes)
+        .with_context(|| format!("parsing {}", input.display()))?;
+    let p = patches
+        .get(slot)
+        .with_context(|| format!("slot {slot} out of range ({} slots in file)", patches.len()))?;
+    eprintln!(
+        "imported slot {slot} (\"{}\") from {} ({} slot(s) total)",
+        p.name_str(),
+        input.display(),
+        patches.len(),
+    );
+    let area = p.to_patch_area(0x18);
+    yaml_io::save_patch_area(output, &area)?;
     Ok(())
 }
 
@@ -248,8 +419,18 @@ fn typed_field_count(area: &SystemArea) -> usize {
 fn field_diffs(a: &SystemArea, b: &SystemArea) -> Vec<String> {
     let a_yaml = serde_yaml::to_string(a).unwrap_or_default();
     let b_yaml = serde_yaml::to_string(b).unwrap_or_default();
-    let a_lines: BTreeSet<&str> = a_yaml.lines().collect();
-    let b_lines: BTreeSet<&str> = b_yaml.lines().collect();
+    yaml_line_diffs(&a_yaml, &b_yaml)
+}
+
+fn patch_field_diffs(a: &PatchArea, b: &PatchArea) -> Vec<String> {
+    let a_yaml = serde_yaml::to_string(a).unwrap_or_default();
+    let b_yaml = serde_yaml::to_string(b).unwrap_or_default();
+    yaml_line_diffs(&a_yaml, &b_yaml)
+}
+
+fn yaml_line_diffs(a: &str, b: &str) -> Vec<String> {
+    let a_lines: BTreeSet<&str> = a.lines().collect();
+    let b_lines: BTreeSet<&str> = b.lines().collect();
     let mut out = Vec::new();
     for line in a_lines.difference(&b_lines) {
         out.push(format!("- {line}"));

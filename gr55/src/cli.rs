@@ -68,13 +68,43 @@ pub enum Command {
     },
 
     /// Print a YAML file in a human-readable form (no device needed).
-    Show { file: PathBuf },
+    Show {
+        /// Interpret the YAML as a patch (PatchArea); default is system (SystemArea).
+        #[arg(long)]
+        patch: bool,
+        file: PathBuf,
+    },
 
     /// Validate a YAML file against the typed model (no device needed).
-    Lint { file: PathBuf },
+    Lint {
+        /// Interpret the YAML as a patch (PatchArea); default is system (SystemArea).
+        #[arg(long)]
+        patch: bool,
+        file: PathBuf,
+    },
 
     /// Report differences between two YAML files (no device needed).
-    Diff { a: PathBuf, b: PathBuf },
+    Diff {
+        /// Interpret the YAML as patches (PatchArea); default is system.
+        #[arg(long)]
+        patch: bool,
+        a: PathBuf,
+        b: PathBuf,
+    },
+
+    /// Parse a FloorBoard `.g5l` library file and write one patch slot
+    /// as YAML (no device needed).
+    ImportG5l {
+        /// `.g5l` file to read.
+        #[arg(short, long)]
+        input: PathBuf,
+        /// Slot index inside the library (0-based). Default 0.
+        #[arg(short, long, default_value_t = 0)]
+        slot: usize,
+        /// Output YAML file path. Use `-` for stdout.
+        #[arg(short, long)]
+        output: PathBuf,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -83,6 +113,12 @@ pub struct DumpTarget {
     /// Dump the System area (MSB 0x01 and 0x02).
     #[arg(long)]
     pub system: bool,
+    /// Dump the live current-patch (TEMP RAM, MSB 0x18).
+    #[arg(long = "temp-patch")]
+    pub temp_patch: bool,
+    /// Dump USER patch slot N (0-296, MSB 0x20 + slot encoding).
+    #[arg(long = "user-patch", value_name = "N")]
+    pub user_patch: Option<u16>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -91,4 +127,10 @@ pub struct SyncTarget {
     /// Push the YAML's System-area fields back to the device.
     #[arg(long)]
     pub system: bool,
+    /// Push the YAML to the live current-patch (TEMP RAM).
+    #[arg(long = "temp-patch")]
+    pub temp_patch: bool,
+    /// Overwrite USER patch slot N (0-296).
+    #[arg(long = "user-patch", value_name = "N")]
+    pub user_patch: Option<u16>,
 }
