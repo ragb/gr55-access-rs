@@ -61,7 +61,14 @@ pub const G5L_HEADER_LEN: usize = 160;
 /// Per-patch slot width, including the 12-byte prefix.
 pub const G5L_PATCH_SLOT_LEN: usize = 1239;
 
-/// The `04 D3` marker that prefixes every patch slot at offsets `+2..=+3`.
+/// The most common patch-prefix marker (`04 D3` at slot offsets +2/+3).
+/// **Not** authoritative — FloorBoard's reader (`fileDialog.cpp:92`)
+/// learns the actual marker key for a file by reading 10 bytes from
+/// offset 162 of that specific file (so older or variant FB writes can
+/// use a different 2-byte prefix here, e.g. `05 2B`, `04 EF`). We trust
+/// the fixed 1239-byte slot stride instead of this constant for
+/// navigation; the constant is kept as documentation of the writer's
+/// default behaviour and for use in synthetic-file tests.
 pub const G5L_PATCH_MARKER: [u8; 2] = [0x04, 0xD3];
 
 /// One block-byte's payload extracted from a `.g5l` patch slot.
@@ -94,27 +101,21 @@ pub enum G5lError {
     TooShort { min: usize, got: usize },
     #[error("file does not start with G5LLibrarianFile magic")]
     BadMagic,
-    #[error(
-        "file length {len} is not header({header}) + N*slot({slot}); leftover {leftover} bytes"
-    )]
-    BadLength {
-        len: usize,
-        header: usize,
-        slot: usize,
-        leftover: usize,
-    },
-    #[error(
-        "patch slot {slot}: marker `04 D3` missing at prefix offset {offset:#x} (found {found:02X?})"
-    )]
-    BadMarker {
-        slot: usize,
-        offset: usize,
-        found: [u8; 2],
-    },
 }
 
-/// Parse a `.g5l` file into one [`G5lPatch`] per slot. Strict: any
-/// magic/length/marker discrepancy is reported as an error.
+/// Parse a `.g5l` file into one [`G5lPatch`] per fixed 1239-byte slot
+/// starting at offset 160. Lenient on two axes:
+///
+/// - **Trailing bytes** — FloorBoard real-world files often carry a
+///   small footer (6..~430 bytes) after the last full slot whose
+///   origin isn't documented in FB's own writer source. Anything that
+///   doesn't form a complete slot at the tail is silently ignored. Use
+///   [`trailing_bytes_after_last_slot`] to inspect the trailer length.
+/// - **Per-slot prefix marker** — FB's reader learns the marker key
+///   from each file's slot 0 (it isn't always `04 D3`; older/variant
+///   files use different 2-byte prefixes). We trust the fixed 1239-byte
+///   stride for navigation and don't enforce any marker constraint, so
+///   variant-marker files parse cleanly.
 pub fn parse(bytes: &[u8]) -> Result<Vec<G5lPatch>, G5lError> {
     if bytes.len() < G5L_HEADER_LEN + G5L_PATCH_SLOT_LEN {
         return Err(G5lError::TooShort {
@@ -126,30 +127,25 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<G5lPatch>, G5lError> {
         return Err(G5lError::BadMagic);
     }
     let after_header = bytes.len() - G5L_HEADER_LEN;
-    if after_header % G5L_PATCH_SLOT_LEN != 0 {
-        return Err(G5lError::BadLength {
-            len: bytes.len(),
-            header: G5L_HEADER_LEN,
-            slot: G5L_PATCH_SLOT_LEN,
-            leftover: after_header % G5L_PATCH_SLOT_LEN,
-        });
-    }
     let n_patches = after_header / G5L_PATCH_SLOT_LEN;
     let mut out = Vec::with_capacity(n_patches);
     for i in 0..n_patches {
         let slot_start = G5L_HEADER_LEN + i * G5L_PATCH_SLOT_LEN;
         let slot = &bytes[slot_start..slot_start + G5L_PATCH_SLOT_LEN];
-        let marker = [slot[2], slot[3]];
-        if marker != G5L_PATCH_MARKER {
-            return Err(G5lError::BadMarker {
-                slot: i,
-                offset: slot_start + 2,
-                found: marker,
-            });
-        }
         out.push(extract_patch(i, slot));
     }
     Ok(out)
+}
+
+/// How many bytes after the last full patch slot are left over —
+/// FloorBoard's writer source doesn't document a footer but most
+/// real-world `.g5l` files carry one (6..~430 bytes). Useful if you
+/// want to log or assert on the trailer separately from the patches.
+pub fn trailing_bytes_after_last_slot(bytes: &[u8]) -> usize {
+    if bytes.len() < G5L_HEADER_LEN {
+        return 0;
+    }
+    (bytes.len() - G5L_HEADER_LEN) % G5L_PATCH_SLOT_LEN
 }
 
 /// Slot-relative (offset, length, block-byte) entries in the order the
@@ -312,17 +308,152 @@ mod tests {
     }
 
     #[test]
-    fn rejects_bad_length_alignment() {
-        let mut bytes = vec![0u8; G5L_HEADER_LEN + G5L_PATCH_SLOT_LEN + 3];
+    fn tolerates_trailing_bytes_after_last_full_slot() {
+        // Build a minimal valid 1-patch file plus 17 junk trailing bytes.
+        // parse() should still return the 1 patch and ignore the trailer.
+        let mut bytes = vec![0u8; G5L_HEADER_LEN + G5L_PATCH_SLOT_LEN + 17];
         bytes[..16].copy_from_slice(G5L_MAGIC);
-        assert!(matches!(parse(&bytes), Err(G5lError::BadLength { .. })));
+        // Place the 04 D3 marker for slot 0.
+        bytes[G5L_HEADER_LEN + 2] = 0x04;
+        bytes[G5L_HEADER_LEN + 3] = 0xD3;
+        let patches = parse(&bytes).expect("trailing bytes should be tolerated");
+        assert_eq!(patches.len(), 1);
+        assert_eq!(trailing_bytes_after_last_slot(&bytes), 17);
     }
 
     #[test]
-    fn rejects_missing_marker() {
+    fn tolerates_unusual_prefix_marker() {
+        // FB's reader learns the marker key per-file from slot 0; a
+        // synthetic file with a non-`04 D3` prefix should still parse,
+        // since we navigate by the fixed 1239-byte slot stride.
         let mut bytes = vec![0u8; G5L_HEADER_LEN + G5L_PATCH_SLOT_LEN];
         bytes[..16].copy_from_slice(G5L_MAGIC);
-        // Leave marker bytes as zero (not 04 D3).
-        assert!(matches!(parse(&bytes), Err(G5lError::BadMarker { slot: 0, .. })));
+        bytes[G5L_HEADER_LEN + 2] = 0x05; // not 0x04
+        bytes[G5L_HEADER_LEN + 3] = 0x2B; // not 0xD3
+        let patches = parse(&bytes).expect("variant marker should still parse");
+        assert_eq!(patches.len(), 1);
+    }
+
+    /// Walk every `.g5l` file in the vendored FloorBoard distribution
+    /// (`docs/spec/floorboard_src/.../packager/saved_patches/`, ~741
+    /// files) and assert each one parses cleanly AND every patch in it
+    /// round-trips losslessly via PatchArea. Any parse failure or
+    /// round-trip mismatch is collected and reported with the file
+    /// name + slot index so regressions point straight at the culprit.
+    ///
+    /// This is the broadest patch-corpus test we have — touching ~28k
+    /// per-block payloads across the full diversity of guitar/bass mode,
+    /// every Modeling category, all 20 MFX types, etc.
+    #[test]
+    fn g5l_round_trips_across_all_bundled_patches() {
+        use std::path::PathBuf;
+
+        let patches_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("docs")
+            .join("spec")
+            .join("floorboard_src")
+            .join("gr55floorboard_source")
+            .join("packager")
+            .join("saved_patches");
+        // Recursively walk subdirectories: saved_patches/ has
+        // Guitar Mode/, Bass Mode/, quick_saved/ children.
+        fn collect_g5l(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.filter_map(Result::ok) {
+                let path = entry.path();
+                let stem = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default();
+                // Skip dot-prefixed (hidden) entries — FloorBoard leaves
+                // partial-save stubs there (e.g. `.335.g5l` is 814 bytes,
+                // short of even one full slot).
+                if stem.starts_with('.') {
+                    continue;
+                }
+                if path.is_dir() {
+                    collect_g5l(&path, out);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("g5l") {
+                    out.push(path);
+                }
+            }
+        }
+        let mut all_paths = Vec::new();
+        collect_g5l(&patches_dir, &mut all_paths);
+        all_paths.sort();
+
+        let mut files_scanned = 0;
+        let mut patches_round_tripped = 0;
+        let mut parse_failures: Vec<(String, String)> = Vec::new();
+        let mut round_trip_failures: Vec<(String, usize)> = Vec::new();
+
+        for path in &all_paths {
+            files_scanned += 1;
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("?")
+                .to_string();
+            let bytes = std::fs::read(path).expect("read .g5l");
+            match parse(&bytes) {
+                Err(e) => parse_failures.push((name.clone(), format!("{e}"))),
+                Ok(patches) => {
+                    for p in &patches {
+                        let area = p.to_patch_area(0x18);
+                        let frames = area.to_frames(0x10, 0x18).unwrap_or_else(|e| {
+                            panic!("re-emit {name} slot {}: {e:?}", p.slot_index)
+                        });
+                        let area2 = PatchArea::from_frames_at(&frames, 0x18);
+                        if area == area2 {
+                            patches_round_tripped += 1;
+                        } else {
+                            round_trip_failures.push((name.clone(), p.slot_index));
+                        }
+                    }
+                }
+            }
+        }
+
+        eprintln!(
+            "g5l corpus: scanned {files_scanned} files, round-tripped {patches_round_tripped} patches"
+        );
+        if !parse_failures.is_empty() {
+            eprintln!("  parse failures ({}):", parse_failures.len());
+            for (name, err) in parse_failures.iter().take(10) {
+                eprintln!("    {name}: {err}");
+            }
+            if parse_failures.len() > 10 {
+                eprintln!("    ... ({} more)", parse_failures.len() - 10);
+            }
+        }
+        if !round_trip_failures.is_empty() {
+            eprintln!("  round-trip failures ({}):", round_trip_failures.len());
+            for (name, slot) in round_trip_failures.iter().take(10) {
+                eprintln!("    {name} slot {slot}");
+            }
+            if round_trip_failures.len() > 10 {
+                eprintln!("    ... ({} more)", round_trip_failures.len() - 10);
+            }
+        }
+
+        assert!(
+            files_scanned >= 700,
+            "expected to scan at least 700 .g5l files (got {files_scanned}) — \
+             is the FloorBoard distribution still vendored at \
+             docs/spec/floorboard_src/...?"
+        );
+        assert!(
+            parse_failures.is_empty(),
+            "{} .g5l file(s) failed to parse — see eprintln output",
+            parse_failures.len()
+        );
+        assert!(
+            round_trip_failures.is_empty(),
+            "{} patch(es) failed PatchArea round-trip — see eprintln output",
+            round_trip_failures.len()
+        );
     }
 }
