@@ -3,6 +3,7 @@
 pub mod address;
 pub mod codec;
 pub mod g5l;
+pub mod help;
 pub mod mfx_params;
 pub(crate) mod mfx_tail_serde;
 pub mod midi_map;
