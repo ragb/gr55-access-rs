@@ -41,6 +41,26 @@ checked out.
 - [`docs/spec/SOURCES.md`](docs/spec/SOURCES.md) — research artifacts kept
   locally (Roland owner's manual, FloorBoard reference snapshot).
 
+## Consuming the wasm from another repo's CI
+
+On every push to a `v*` tag the CI publishes a GitHub Release with three
+prebuilt wasm-pack bundles (web / bundler / nodejs targets) plus the two
+JSON Schemas. Other repos' pipelines can grab them by URL:
+
+```bash
+TAG=v0.1.0
+BASE="https://github.com/ragb/gr55-access-rs/releases/download/${TAG}"
+
+# wasm for browser ES modules
+curl -sSL "${BASE}/gr55-wasm-web.tar.gz"     | tar xz
+# JSON Schema (for form generators / YAML validators)
+curl -sSL -o patch.schema.json "${BASE}/patch.schema.json"
+```
+
+For unreleased main-branch builds, the same artifacts are published per
+workflow run via `actions/upload-artifact` and can be fetched with
+`gh run download` from any repo that has a token with read access.
+
 ## License
 
 MIT. See [`LICENSE`](LICENSE).

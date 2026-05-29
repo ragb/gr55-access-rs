@@ -29,10 +29,7 @@ pub fn serialize<S: Serializer>(map: &BTreeMap<u8, u8>, ser: S) -> Result<S::Ok,
     let mut grouped: BTreeMap<String, BTreeMap<String, u8>> = BTreeMap::new();
     for (&off, &b) in map {
         let (group_key, inner_key) = classify(off);
-        grouped
-            .entry(group_key)
-            .or_default()
-            .insert(inner_key, b);
+        grouped.entry(group_key).or_default().insert(inner_key, b);
     }
     grouped.serialize(ser)
 }
@@ -57,10 +54,9 @@ pub fn deserialize<'de, D: Deserializer<'de>>(de: D) -> Result<BTreeMap<u8, u8>,
 
 fn classify(off: u8) -> (String, String) {
     match param_for(off) {
-        Some(entry) if !entry.name.is_empty() => (
-            entry.group.as_snake().to_string(),
-            entry.name.to_string(),
-        ),
+        Some(entry) if !entry.name.is_empty() => {
+            (entry.group.as_snake().to_string(), entry.name.to_string())
+        }
         _ => (UNMAPPED_KEY.to_string(), format!("0x{off:02X}")),
     }
 }

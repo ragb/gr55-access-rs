@@ -98,10 +98,7 @@ impl std::str::FromStr for PatchName {
         }
         for (i, b) in bytes.iter().enumerate() {
             if !(0x20..=0x7D).contains(b) {
-                return Err(PatchNameError::NotPrintable {
-                    index: i,
-                    byte: *b,
-                });
+                return Err(PatchNameError::NotPrintable { index: i, byte: *b });
             }
         }
         let mut out = [0x20_u8; 16];
@@ -444,8 +441,8 @@ impl AssignSource {
             0x06 => GkS1,
             0x07 => GkS2,
             0x08 => GkVol,
-            0x09..=0x27 => MidiCc(b - 0x08),         // CC#01..=CC#31
-            0x28..=0x47 => MidiCc(b - 0x28 + 0x40),  // CC#64..=CC#95
+            0x09..=0x27 => MidiCc(b - 0x08),        // CC#01..=CC#31
+            0x28..=0x47 => MidiCc(b - 0x28 + 0x40), // CC#64..=CC#95
             _ => return None,
         })
     }
@@ -947,7 +944,10 @@ pub struct Mfx {
         skip_serializing_if = "BTreeMap::is_empty",
         with = "crate::mfx_tail_serde"
     )]
-    #[cfg_attr(feature = "schema", schemars(schema_with = "crate::mfx_tail_serde::schema"))]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(schema_with = "crate::mfx_tail_serde::schema")
+    )]
     pub raw_tail: BTreeMap<u16, u8>,
 }
 
@@ -1116,10 +1116,11 @@ impl Mfx {
         &self,
     ) -> impl Iterator<Item = (u16, u8, &'static crate::mfx_params::MfxParamEntry)> + '_ {
         let active = self.mfx_type.map(map_mfx_type_to_owner);
-        self.iter_params().filter(move |(_, _, entry)| match active {
-            Some(ty) => entry.owning_type.is_none() || entry.owning_type == Some(ty),
-            None => entry.owning_type.is_none(),
-        })
+        self.iter_params()
+            .filter(move |(_, _, entry)| match active {
+                Some(ty) => entry.owning_type.is_none() || entry.owning_type == Some(ty),
+                None => entry.owning_type.is_none(),
+            })
     }
 
     /// Iterate only the common-header bytes (those with no `owning_type`
@@ -1147,7 +1148,9 @@ impl Mfx {
     /// typed fields plus raw_tail bytes — paired with their FloorBoard
     /// metadata. Useful for editors that want to render every parameter
     /// with its name and owning type.
-    pub fn iter_params(&self) -> impl Iterator<Item = (u16, u8, &'static crate::mfx_params::MfxParamEntry)> + '_ {
+    pub fn iter_params(
+        &self,
+    ) -> impl Iterator<Item = (u16, u8, &'static crate::mfx_params::MfxParamEntry)> + '_ {
         // Build a quick lookup of which linear offsets the typed fields
         // occupy so we know to fall back to raw_tail for the rest.
         let typed = [
@@ -1171,10 +1174,14 @@ impl Mfx {
         ];
         typed
             .into_iter()
-            .filter_map(|(lin, v)| v.map(|b| (lin as u16, b, &crate::mfx_params::MFX_PARAMS[lin as usize])))
-            .chain(self.raw_tail.iter().map(|(&lin, &b)| {
-                (lin, b, &crate::mfx_params::MFX_PARAMS[lin as usize])
-            }))
+            .filter_map(|(lin, v)| {
+                v.map(|b| (lin as u16, b, &crate::mfx_params::MFX_PARAMS[lin as usize]))
+            })
+            .chain(
+                self.raw_tail
+                    .iter()
+                    .map(|(&lin, &b)| (lin, b, &crate::mfx_params::MFX_PARAMS[lin as usize])),
+            )
     }
 }
 
@@ -1257,7 +1264,10 @@ pub struct Mod {
         skip_serializing_if = "BTreeMap::is_empty",
         with = "crate::mod_tail_serde"
     )]
-    #[cfg_attr(feature = "schema", schemars(schema_with = "crate::mod_tail_serde::schema"))]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(schema_with = "crate::mod_tail_serde::schema")
+    )]
     pub raw_tail: BTreeMap<u8, u8>,
 }
 
@@ -1351,7 +1361,9 @@ impl Mod {
         ];
         typed
             .into_iter()
-            .filter_map(|(off, v)| v.map(|b| (off, b, &crate::mod_params::MOD_PARAMS[off as usize])))
+            .filter_map(|(off, v)| {
+                v.map(|b| (off, b, &crate::mod_params::MOD_PARAMS[off as usize]))
+            })
             .chain(
                 self.raw_tail
                     .iter()
@@ -1433,7 +1445,10 @@ pub struct Modeling {
         skip_serializing_if = "BTreeMap::is_empty",
         with = "crate::modeling_tail_serde"
     )]
-    #[cfg_attr(feature = "schema", schemars(schema_with = "crate::modeling_tail_serde::schema"))]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(schema_with = "crate::modeling_tail_serde::schema")
+    )]
     pub raw_tail: BTreeMap<u16, u8>,
 }
 
@@ -1655,10 +1670,20 @@ impl Modeling {
         typed
             .into_iter()
             .filter_map(|(lin, v)| {
-                v.map(|b| (lin, b, &crate::modeling_params::MODELING_PARAMS[lin as usize]))
+                v.map(|b| {
+                    (
+                        lin,
+                        b,
+                        &crate::modeling_params::MODELING_PARAMS[lin as usize],
+                    )
+                })
             })
             .chain(self.raw_tail.iter().map(|(&lin, &b)| {
-                (lin, b, &crate::modeling_params::MODELING_PARAMS[lin as usize])
+                (
+                    lin,
+                    b,
+                    &crate::modeling_params::MODELING_PARAMS[lin as usize],
+                )
             }))
     }
 }
@@ -1930,7 +1955,10 @@ pub struct Pcm {
         skip_serializing_if = "BTreeMap::is_empty",
         with = "crate::pcm_tail_serde"
     )]
-    #[cfg_attr(feature = "schema", schemars(schema_with = "crate::pcm_tail_serde::schema"))]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(schema_with = "crate::pcm_tail_serde::schema")
+    )]
     pub raw_tail: BTreeMap<u8, u8>,
 }
 
@@ -3821,7 +3849,10 @@ impl Assign {
         put!(0x0B, self.source_mode.map(AssignSourceMode::to_byte));
         put!(0x0C, self.range_low);
         put!(0x0D, self.range_high);
-        put!(0x0E, self.internal_trigger.map(AssignInternalTrigger::to_byte));
+        put!(
+            0x0E,
+            self.internal_trigger.map(AssignInternalTrigger::to_byte)
+        );
         put!(0x0F, self.int_pdl_time);
         put!(0x10, self.int_pdl_curve.map(AssignIntPdlCurve::to_byte));
         put!(0x11, self.wave_rate);
@@ -5632,29 +5663,29 @@ mod tests {
     fn exp_block_decodes_and_round_trips() {
         // 0x1F..=0x35 = 23 bytes.
         let payload: Vec<u8> = vec![
-            ExpFunction::PitchBend.to_byte(), // 0x1F
-            OnOff::On.to_byte(),              // 0x20 tone_vol_pcm_1
-            OnOff::Off.to_byte(),             // 0x21 tone_vol_pcm_2
-            OnOff::On.to_byte(),              // 0x22 tone_vol_modeling
-            OnOff::Off.to_byte(),             // 0x23 tone_vol_normal_pu
+            ExpFunction::PitchBend.to_byte(),           // 0x1F
+            OnOff::On.to_byte(),                        // 0x20 tone_vol_pcm_1
+            OnOff::Off.to_byte(),                       // 0x21 tone_vol_pcm_2
+            OnOff::On.to_byte(),                        // 0x22 tone_vol_modeling
+            OnOff::Off.to_byte(),                       // 0x23 tone_vol_normal_pu
             PitchBendDepth::new(-5).unwrap().to_byte(), // 0x24
-            OnOff::On.to_byte(),              // 0x25 pitch_bend_pcm_1
-            OnOff::Off.to_byte(),             // 0x26 pitch_bend_pcm_2
-            OnOff::On.to_byte(),              // 0x27 pitch_bend_modeling
-            0x40,                             // 0x28 mod_min
-            0x60,                             // 0x29 mod_max
-            OnOff::On.to_byte(),              // 0x2A mod_pcm_1
-            OnOff::Off.to_byte(),             // 0x2B mod_pcm_2
-            CrossFaderMode::Toe.to_byte(),    // 0x2C cf_pcm_1
-            CrossFaderMode::Heel.to_byte(),   // 0x2D cf_pcm_2
-            CrossFaderMode::Off.to_byte(),    // 0x2E cf_modeling
-            CrossFaderMode::Heel.to_byte(),   // 0x2F cf_normal_pu
-            0x10,                             // 0x30 delay_min
-            0x70,                             // 0x31 delay_max
-            0x20,                             // 0x32 reverb_min
-            0x50,                             // 0x33 reverb_max
-            0x15,                             // 0x34 chorus_min
-            0x45,                             // 0x35 chorus_max
+            OnOff::On.to_byte(),                        // 0x25 pitch_bend_pcm_1
+            OnOff::Off.to_byte(),                       // 0x26 pitch_bend_pcm_2
+            OnOff::On.to_byte(),                        // 0x27 pitch_bend_modeling
+            0x40,                                       // 0x28 mod_min
+            0x60,                                       // 0x29 mod_max
+            OnOff::On.to_byte(),                        // 0x2A mod_pcm_1
+            OnOff::Off.to_byte(),                       // 0x2B mod_pcm_2
+            CrossFaderMode::Toe.to_byte(),              // 0x2C cf_pcm_1
+            CrossFaderMode::Heel.to_byte(),             // 0x2D cf_pcm_2
+            CrossFaderMode::Off.to_byte(),              // 0x2E cf_modeling
+            CrossFaderMode::Heel.to_byte(),             // 0x2F cf_normal_pu
+            0x10,                                       // 0x30 delay_min
+            0x70,                                       // 0x31 delay_max
+            0x20,                                       // 0x32 reverb_min
+            0x50,                                       // 0x33 reverb_max
+            0x15,                                       // 0x34 chorus_min
+            0x45,                                       // 0x35 chorus_max
         ];
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
@@ -5691,29 +5722,29 @@ mod tests {
         // Distinct values from the EXP test so a swap between the two
         // blocks would show up as a mismatch.
         let payload: Vec<u8> = vec![
-            ExpFunction::ModControl.to_byte(), // 0x36
-            OnOff::Off.to_byte(),              // 0x37
-            OnOff::On.to_byte(),               // 0x38
-            OnOff::Off.to_byte(),              // 0x39
-            OnOff::On.to_byte(),               // 0x3A
+            ExpFunction::ModControl.to_byte(),         // 0x36
+            OnOff::Off.to_byte(),                      // 0x37
+            OnOff::On.to_byte(),                       // 0x38
+            OnOff::Off.to_byte(),                      // 0x39
+            OnOff::On.to_byte(),                       // 0x3A
             PitchBendDepth::new(7).unwrap().to_byte(), // 0x3B
-            OnOff::Off.to_byte(),              // 0x3C
-            OnOff::On.to_byte(),               // 0x3D
-            OnOff::Off.to_byte(),              // 0x3E
-            0x05,                              // 0x3F mod_min
-            0x65,                              // 0x40 mod_max
-            OnOff::Off.to_byte(),              // 0x41
-            OnOff::On.to_byte(),               // 0x42
-            CrossFaderMode::Heel.to_byte(),    // 0x43
-            CrossFaderMode::Toe.to_byte(),     // 0x44
-            CrossFaderMode::Heel.to_byte(),    // 0x45
-            CrossFaderMode::Off.to_byte(),     // 0x46
-            0x05,                              // 0x47 delay_min
-            0x55,                              // 0x48 delay_max
-            0x15,                              // 0x49 reverb_min
-            0x64,                              // 0x4A reverb_max (max raw = 100)
-            0x05,                              // 0x4B chorus_min
-            0x45,                              // 0x4C chorus_max
+            OnOff::Off.to_byte(),                      // 0x3C
+            OnOff::On.to_byte(),                       // 0x3D
+            OnOff::Off.to_byte(),                      // 0x3E
+            0x05,                                      // 0x3F mod_min
+            0x65,                                      // 0x40 mod_max
+            OnOff::Off.to_byte(),                      // 0x41
+            OnOff::On.to_byte(),                       // 0x42
+            CrossFaderMode::Heel.to_byte(),            // 0x43
+            CrossFaderMode::Toe.to_byte(),             // 0x44
+            CrossFaderMode::Heel.to_byte(),            // 0x45
+            CrossFaderMode::Off.to_byte(),             // 0x46
+            0x05,                                      // 0x47 delay_min
+            0x55,                                      // 0x48 delay_max
+            0x15,                                      // 0x49 reverb_min
+            0x64,                                      // 0x4A reverb_max (max raw = 100)
+            0x05,                                      // 0x4B chorus_min
+            0x45,                                      // 0x4C chorus_max
         ];
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
@@ -5746,20 +5777,20 @@ mod tests {
         // — supply a byte at one of them and assert it falls through to
         // unknown_bytes rather than getting absorbed.
         let payload: Vec<u8> = vec![
-            OnOff::On.to_byte(),                 // 0x4D status
-            ExpSwFunction::DelaySw.to_byte(),    // 0x4E function
-            0xAA,                                // 0x4F placeholder
-            0xBB,                                // 0x50 placeholder
-            0xCC,                                // 0x51 placeholder
-            0xDD,                                // 0x52 placeholder
-            OnOff::Off.to_byte(),                // 0x53 off_pcm_1
-            OnOff::On.to_byte(),                 // 0x54 off_pcm_2
-            OnOff::Off.to_byte(),                // 0x55 off_modeling
-            OnOff::On.to_byte(),                 // 0x56 off_normal_pu
-            OnOff::On.to_byte(),                 // 0x57 on_pcm_1
-            OnOff::Off.to_byte(),                // 0x58 on_pcm_2
-            OnOff::On.to_byte(),                 // 0x59 on_modeling
-            OnOff::Off.to_byte(),                // 0x5A on_normal_pu
+            OnOff::On.to_byte(),              // 0x4D status
+            ExpSwFunction::DelaySw.to_byte(), // 0x4E function
+            0xAA,                             // 0x4F placeholder
+            0xBB,                             // 0x50 placeholder
+            0xCC,                             // 0x51 placeholder
+            0xDD,                             // 0x52 placeholder
+            OnOff::Off.to_byte(),             // 0x53 off_pcm_1
+            OnOff::On.to_byte(),              // 0x54 off_pcm_2
+            OnOff::Off.to_byte(),             // 0x55 off_modeling
+            OnOff::On.to_byte(),              // 0x56 off_normal_pu
+            OnOff::On.to_byte(),              // 0x57 on_pcm_1
+            OnOff::Off.to_byte(),             // 0x58 on_pcm_2
+            OnOff::On.to_byte(),              // 0x59 on_modeling
+            OnOff::Off.to_byte(),             // 0x5A on_normal_pu
         ];
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
@@ -5786,29 +5817,29 @@ mod tests {
     #[test]
     fn gk_volume_block_decodes_and_round_trips() {
         let payload: Vec<u8> = vec![
-            ExpFunction::ToneVolume.to_byte(),         // 0x5B
-            OnOff::On.to_byte(),                       // 0x5C
-            OnOff::Off.to_byte(),                      // 0x5D
-            OnOff::On.to_byte(),                       // 0x5E
-            OnOff::Off.to_byte(),                      // 0x5F
+            ExpFunction::ToneVolume.to_byte(),          // 0x5B
+            OnOff::On.to_byte(),                        // 0x5C
+            OnOff::Off.to_byte(),                       // 0x5D
+            OnOff::On.to_byte(),                        // 0x5E
+            OnOff::Off.to_byte(),                       // 0x5F
             PitchBendDepth::new(-1).unwrap().to_byte(), // 0x60
-            OnOff::On.to_byte(),                       // 0x61
-            OnOff::Off.to_byte(),                      // 0x62
-            OnOff::On.to_byte(),                       // 0x63
-            0x30,                                      // 0x64 mod_min
-            0x60,                                      // 0x65 mod_max
-            OnOff::Off.to_byte(),                      // 0x66
-            OnOff::On.to_byte(),                       // 0x67
-            CrossFaderMode::Toe.to_byte(),             // 0x68
-            CrossFaderMode::Heel.to_byte(),            // 0x69
-            CrossFaderMode::Off.to_byte(),             // 0x6A
-            CrossFaderMode::Toe.to_byte(),             // 0x6B
-            0x08,                                      // 0x6C delay_min
-            0x60,                                      // 0x6D delay_max
-            0x18,                                      // 0x6E reverb_min
-            0x58,                                      // 0x6F reverb_max
-            0x08,                                      // 0x70 chorus_min
-            0x48,                                      // 0x71 chorus_max
+            OnOff::On.to_byte(),                        // 0x61
+            OnOff::Off.to_byte(),                       // 0x62
+            OnOff::On.to_byte(),                        // 0x63
+            0x30,                                       // 0x64 mod_min
+            0x60,                                       // 0x65 mod_max
+            OnOff::Off.to_byte(),                       // 0x66
+            OnOff::On.to_byte(),                        // 0x67
+            CrossFaderMode::Toe.to_byte(),              // 0x68
+            CrossFaderMode::Heel.to_byte(),             // 0x69
+            CrossFaderMode::Off.to_byte(),              // 0x6A
+            CrossFaderMode::Toe.to_byte(),              // 0x6B
+            0x08,                                       // 0x6C delay_min
+            0x60,                                       // 0x6D delay_max
+            0x18,                                       // 0x6E reverb_min
+            0x58,                                       // 0x6F reverb_max
+            0x08,                                       // 0x70 chorus_min
+            0x48,                                       // 0x71 chorus_max
         ];
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
@@ -5942,25 +5973,25 @@ mod tests {
     #[test]
     fn master_assign_1_decodes_typed_fields() {
         let payload: Vec<u8> = vec![
-            OnOff::On.to_byte(),                            // +0x00 on_off
-            0x05,                                           // +0x01 target
-            0x00,                                           // +0x02 target_b
-            0x00,                                           // +0x03 target_c
-            0x00,                                           // +0x04 min
-            0x00,                                           // +0x05 min_b
-            0x00,                                           // +0x06 min_c
-            0x0F,                                           // +0x07 max
-            0x00,                                           // +0x08 max_b
-            0x00,                                           // +0x09 max_c
-            AssignSource::ExpPdl.to_byte(),                 // +0x0A source
-            AssignSourceMode::Toggle.to_byte(),             // +0x0B source_mode
-            0x00,                                           // +0x0C range_low
-            0x7F,                                           // +0x0D range_high
-            AssignInternalTrigger::PatchChange.to_byte(),   // +0x0E internal_trigger
-            0x50,                                           // +0x0F int_pdl_time
-            AssignIntPdlCurve::SlowRise.to_byte(),          // +0x10 int_pdl_curve
-            0x6B,                                           // +0x11 wave_rate (= quarter note)
-            AssignWaveForm::Triangle.to_byte(),             // +0x12 wave_form
+            OnOff::On.to_byte(),                          // +0x00 on_off
+            0x05,                                         // +0x01 target
+            0x00,                                         // +0x02 target_b
+            0x00,                                         // +0x03 target_c
+            0x00,                                         // +0x04 min
+            0x00,                                         // +0x05 min_b
+            0x00,                                         // +0x06 min_c
+            0x0F,                                         // +0x07 max
+            0x00,                                         // +0x08 max_b
+            0x00,                                         // +0x09 max_c
+            AssignSource::ExpPdl.to_byte(),               // +0x0A source
+            AssignSourceMode::Toggle.to_byte(),           // +0x0B source_mode
+            0x00,                                         // +0x0C range_low
+            0x7F,                                         // +0x0D range_high
+            AssignInternalTrigger::PatchChange.to_byte(), // +0x0E internal_trigger
+            0x50,                                         // +0x0F int_pdl_time
+            AssignIntPdlCurve::SlowRise.to_byte(),        // +0x10 int_pdl_curve
+            0x6B,                                         // +0x11 wave_rate (= quarter note)
+            AssignWaveForm::Triangle.to_byte(),           // +0x12 wave_form
         ];
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
@@ -5979,7 +6010,10 @@ mod tests {
         assert_eq!(a1.source_mode, Some(AssignSourceMode::Toggle));
         assert_eq!(a1.range_low, Some(0x00));
         assert_eq!(a1.range_high, Some(0x7F));
-        assert_eq!(a1.internal_trigger, Some(AssignInternalTrigger::PatchChange));
+        assert_eq!(
+            a1.internal_trigger,
+            Some(AssignInternalTrigger::PatchChange)
+        );
         assert_eq!(a1.int_pdl_time, Some(0x50));
         assert_eq!(a1.int_pdl_curve, Some(AssignIntPdlCurve::SlowRise));
         assert_eq!(a1.wave_rate, Some(0x6B));
@@ -6008,10 +6042,15 @@ mod tests {
                 device_id: 0x10,
                 address: [TEMP_MSB, 0x00, 0x02, 0x00],
                 data: Cow::Owned(vec![
-                    0x00, 0x00, // target_b, target_c
-                    0x02, 0x00, 0x00, // min, min_b, min_c
-                    0x0E, 0x00, 0x00, // max, max_b, max_c
-                    AssignSource::midi_cc(7).unwrap().to_byte(),  // source = CC#07
+                    0x00,
+                    0x00, // target_b, target_c
+                    0x02,
+                    0x00,
+                    0x00, // min, min_b, min_c
+                    0x0E,
+                    0x00,
+                    0x00,                                        // max, max_b, max_c
+                    AssignSource::midi_cc(7).unwrap().to_byte(), // source = CC#07
                     AssignSourceMode::Moment.to_byte(),
                     0x10, // range_low
                     0x70, // range_high
@@ -6076,18 +6115,18 @@ mod tests {
         // to unknown_bytes: 0x2F which has no FloorBoard customdesc, and
         // 0x41 which has no PARAM at all).
         let mut payload: Vec<u8> = vec![
-            PatchGkSet::User3.to_byte(),       // 0x24
-            GuitarOut::Modeling.to_byte(),     // 0x25
-            12,                                // 0x26 v_link_pallet
-            7,                                 // 0x27 v_link_clip
-            3,                                 // 0x28 v_link_note_clip_change
-            VLinkControl::ColorCb.to_byte(),   // 0x29
-            VLinkControl::Bright.to_byte(),    // 0x2A
-            VLinkControl::PlaySpeed.to_byte(), // 0x2B
+            PatchGkSet::User3.to_byte(),          // 0x24
+            GuitarOut::Modeling.to_byte(),        // 0x25
+            12,                                   // 0x26 v_link_pallet
+            7,                                    // 0x27 v_link_clip
+            3,                                    // 0x28 v_link_note_clip_change
+            VLinkControl::ColorCb.to_byte(),      // 0x29
+            VLinkControl::Bright.to_byte(),       // 0x2A
+            VLinkControl::PlaySpeed.to_byte(),    // 0x2B
             PatchStructure::Structure2.to_byte(), // 0x2C
-            LineRoute::AmpMod.to_byte(),       // 0x2D
-            LineRoute::Mfx.to_byte(),          // 0x2E
-            0xAA,                              // 0x2F undocumented placeholder
+            LineRoute::AmpMod.to_byte(),          // 0x2D
+            LineRoute::Mfx.to_byte(),             // 0x2E
+            0xAA,                                 // 0x2F undocumented placeholder
         ];
         // Patch Level = 75 (0x4B) — nibbles 4 and B → bytes 0x04 0x0B.
         let [pl_hi, pl_lo] = PatchLevel::new(75).unwrap().to_two_bytes();
@@ -6162,24 +6201,24 @@ mod tests {
     #[test]
     fn mfx_block_decodes_header_eq_and_preserves_tail() {
         let mut payload = vec![
-            70,                              // 0x00 chorus_send
-            45,                              // 0x01 delay_send
-            30,                              // 0x02 reverb_send
-            0xAB,                            // 0x03 reserved (raw)
-            OnOff::On.to_byte(),             // 0x04 switch
-            MfxType::Phaser.to_byte(),       // 0x05 type
-            50,                              // 0x06 pan (= center)
-            EqLowFreq::Hz400.to_byte(),      // 0x07
-            0x10,                            // 0x08 low_gain
-            EqMidFreq::Khz1_0.to_byte(),     // 0x09
-            0x12,                            // 0x0A mid1_gain
-            EqMidQ::Q2.to_byte(),            // 0x0B
-            EqMidFreq::Khz3_15.to_byte(),    // 0x0C
-            0x0F,                            // 0x0D mid2_gain
-            EqMidQ::Q4.to_byte(),            // 0x0E
-            EqHighFreq::Khz4_0.to_byte(),    // 0x0F
-            0x14,                            // 0x10 high_gain
-            0x60,                            // 0x11 eq_level
+            70,                           // 0x00 chorus_send
+            45,                           // 0x01 delay_send
+            30,                           // 0x02 reverb_send
+            0xAB,                         // 0x03 reserved (raw)
+            OnOff::On.to_byte(),          // 0x04 switch
+            MfxType::Phaser.to_byte(),    // 0x05 type
+            50,                           // 0x06 pan (= center)
+            EqLowFreq::Hz400.to_byte(),   // 0x07
+            0x10,                         // 0x08 low_gain
+            EqMidFreq::Khz1_0.to_byte(),  // 0x09
+            0x12,                         // 0x0A mid1_gain
+            EqMidQ::Q2.to_byte(),         // 0x0B
+            EqMidFreq::Khz3_15.to_byte(), // 0x0C
+            0x0F,                         // 0x0D mid2_gain
+            EqMidQ::Q4.to_byte(),         // 0x0E
+            EqHighFreq::Khz4_0.to_byte(), // 0x0F
+            0x14,                         // 0x10 high_gain
+            0x60,                         // 0x11 eq_level
         ];
         // Add 5 bytes into the type-specific tail so we can verify they
         // survive in raw_tail.
@@ -6220,36 +6259,36 @@ mod tests {
     #[test]
     fn page_06_effects_block_round_trips() {
         let payload: Vec<u8> = vec![
-            OnOff::On.to_byte(),                  // 0x00 chorus_switch
-            ChorusType::Stereo.to_byte(),         // 0x01 chorus_type
-            0x40,                                 // 0x02 chorus_rate
-            60,                                   // 0x03 chorus_depth
-            70,                                   // 0x04 chorus_level
-            OnOff::On.to_byte(),                  // 0x05 delay_switch
-            DelayType::Tape.to_byte(),            // 0x06 delay_type
-            0x0A,                                 // 0x07 delay_time
-            0x05,                                 // 0x08 delay_time_b
-            0x02,                                 // 0x09 delay_time_c
-            55,                                   // 0x0A delay_feedback
-            80,                                   // 0x0B delay_level
-            OnOff::On.to_byte(),                  // 0x0C reverb_switch
-            ReverbType::Hall1.to_byte(),          // 0x0D reverb_type
-            50,                                   // 0x0E reverb_time (= 5.1s)
-            ReverbHighCut::Khz4_0.to_byte(),      // 0x0F reverb_high_cut
-            65,                                   // 0x10 reverb_level
-            OnOff::On.to_byte(),                  // 0x11 patch_eq_switch
-            PatchEqLoCut::Hz110.to_byte(),        // 0x12
-            0x20,                                 // 0x13 patch_eq_low_gain
-            PatchEqMidFreq::Hz400.to_byte(),      // 0x14
-            PatchEqMidQ::Q2.to_byte(),            // 0x15
-            0x10,                                 // 0x16 low_mid_gain
-            PatchEqMidFreq::Khz3_15.to_byte(),    // 0x17
-            PatchEqMidQ::Q4.to_byte(),            // 0x18
-            0x18,                                 // 0x19 hi_mid_gain
-            PatchEqHighCut::Khz4_00.to_byte(),    // 0x1A
-            0x22,                                 // 0x1B patch_eq_high_gain
-            0x20,                                 // 0x1C patch_eq_level
-            PatchEqCharacter::Plus2.to_byte(),    // 0x1D
+            OnOff::On.to_byte(),               // 0x00 chorus_switch
+            ChorusType::Stereo.to_byte(),      // 0x01 chorus_type
+            0x40,                              // 0x02 chorus_rate
+            60,                                // 0x03 chorus_depth
+            70,                                // 0x04 chorus_level
+            OnOff::On.to_byte(),               // 0x05 delay_switch
+            DelayType::Tape.to_byte(),         // 0x06 delay_type
+            0x0A,                              // 0x07 delay_time
+            0x05,                              // 0x08 delay_time_b
+            0x02,                              // 0x09 delay_time_c
+            55,                                // 0x0A delay_feedback
+            80,                                // 0x0B delay_level
+            OnOff::On.to_byte(),               // 0x0C reverb_switch
+            ReverbType::Hall1.to_byte(),       // 0x0D reverb_type
+            50,                                // 0x0E reverb_time (= 5.1s)
+            ReverbHighCut::Khz4_0.to_byte(),   // 0x0F reverb_high_cut
+            65,                                // 0x10 reverb_level
+            OnOff::On.to_byte(),               // 0x11 patch_eq_switch
+            PatchEqLoCut::Hz110.to_byte(),     // 0x12
+            0x20,                              // 0x13 patch_eq_low_gain
+            PatchEqMidFreq::Hz400.to_byte(),   // 0x14
+            PatchEqMidQ::Q2.to_byte(),         // 0x15
+            0x10,                              // 0x16 low_mid_gain
+            PatchEqMidFreq::Khz3_15.to_byte(), // 0x17
+            PatchEqMidQ::Q4.to_byte(),         // 0x18
+            0x18,                              // 0x19 hi_mid_gain
+            PatchEqHighCut::Khz4_00.to_byte(), // 0x1A
+            0x22,                              // 0x1B patch_eq_high_gain
+            0x20,                              // 0x1C patch_eq_level
+            PatchEqCharacter::Plus2.to_byte(), // 0x1D
         ];
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
@@ -6297,30 +6336,30 @@ mod tests {
     #[test]
     fn page_07_preamp_and_mod_header_round_trip() {
         let mut payload: Vec<u8> = vec![
-            OnOff::On.to_byte(),               // 0x00 preamp_switch
-            PreampType::MsHiGain.to_byte(),    // 0x01 preamp_type
-            90,                                // 0x02 preamp_gain
-            80,                                // 0x03 preamp_level
-            PreampGainSw::High.to_byte(),      // 0x04
-            OnOff::Off.to_byte(),              // 0x05 solo_sw
-            50,                                // 0x06 solo_level
-            55,                                // 0x07 bass
-            45,                                // 0x08 middle
-            60,                                // 0x09 treble
-            65,                                // 0x0A presence
-            OnOff::On.to_byte(),               // 0x0B bright_sw
+            OnOff::On.to_byte(),                 // 0x00 preamp_switch
+            PreampType::MsHiGain.to_byte(),      // 0x01 preamp_type
+            90,                                  // 0x02 preamp_gain
+            80,                                  // 0x03 preamp_level
+            PreampGainSw::High.to_byte(),        // 0x04
+            OnOff::Off.to_byte(),                // 0x05 solo_sw
+            50,                                  // 0x06 solo_level
+            55,                                  // 0x07 bass
+            45,                                  // 0x08 middle
+            60,                                  // 0x09 treble
+            65,                                  // 0x0A presence
+            OnOff::On.to_byte(),                 // 0x0B bright_sw
             SpeakerType::FourByTwelve.to_byte(), // 0x0C
-            MicType::Dyn57.to_byte(),          // 0x0D
-            MicDistance::OnMic.to_byte(),      // 0x0E
-            3,                                 // 0x0F mic_position (3cm)
-            85,                                // 0x10 mic_level
-            40,                                // 0x11 mod_chorus_send
-            35,                                // 0x12 mod_delay_send
-            30,                                // 0x13 mod_reverb_send
-            0xCC,                              // 0x14 mod_null_14
-            OnOff::On.to_byte(),               // 0x15 mod_switch
-            ModType::Phaser.to_byte(),         // 0x16 mod_type
-            50,                                // 0x17 mod_pan (center)
+            MicType::Dyn57.to_byte(),            // 0x0D
+            MicDistance::OnMic.to_byte(),        // 0x0E
+            3,                                   // 0x0F mic_position (3cm)
+            85,                                  // 0x10 mic_level
+            40,                                  // 0x11 mod_chorus_send
+            35,                                  // 0x12 mod_delay_send
+            30,                                  // 0x13 mod_reverb_send
+            0xCC,                                // 0x14 mod_null_14
+            OnOff::On.to_byte(),                 // 0x15 mod_switch
+            ModType::Phaser.to_byte(),           // 0x16 mod_type
+            50,                                  // 0x17 mod_pan (center)
         ];
         // Add 4 bytes into the MOD-type-dependent tail to verify they
         // survive in unknown_bytes (pending sum modelling).
@@ -6392,7 +6431,7 @@ mod tests {
         assert!(active_offsets.contains(&0x00)); // chorus_send
         assert!(active_offsets.contains(&0x04)); // switch
         assert!(active_offsets.contains(&0x05)); // mfx_type
-        // Super Filter byte present.
+                                                 // Super Filter byte present.
         assert!(active_offsets.contains(&0x12));
         // Phaser byte EXCLUDED.
         assert!(!active_offsets.contains(&0x1F));
@@ -6484,11 +6523,13 @@ mod tests {
         modu.raw_tail.insert(0x1F, 0x40);
 
         let collected: Vec<_> = modu.iter_params().collect();
-        let by_offset: std::collections::BTreeMap<u8, (u8, &str, Option<crate::mod_params::ModTypeOwner>)> =
-            collected
-                .iter()
-                .map(|(off, b, entry)| (*off, (*b, entry.name, entry.owning_type)))
-                .collect();
+        let by_offset: std::collections::BTreeMap<
+            u8,
+            (u8, &str, Option<crate::mod_params::ModTypeOwner>),
+        > = collected
+            .iter()
+            .map(|(off, b, entry)| (*off, (*b, entry.name, entry.owning_type)))
+            .collect();
 
         // Common header bytes carry no owning type.
         assert_eq!(
@@ -6589,24 +6630,24 @@ mod tests {
             let (bank, pos) = tone_per_slot[slot_idx];
             // Header bytes on header_page.
             let header_payload: Vec<u8> = vec![
-                0x58 + slot_idx as u8,             // 0x00 synth_mode
-                bank,                              // 0x01 tone bank
-                pos,                               // 0x02 tone position
-                AnalogPuToneSw::Off.to_byte(),     // 0x03 tone_sw
-                100,                               // 0x04 tone_level
-                0x41,                              // 0x05 octave
-                OnOff::On.to_byte(),               // 0x06 chromatic
-                OnOff::Off.to_byte(),              // 0x07 legato
-                OnOff::On.to_byte(),               // 0x08 nuance_sw
-                0x40,                              // 0x09 pan
-                0x40,                              // 0x0A pitch_shift
-                0x40,                              // 0x0B pitch_fine
-                PortamentoSwitch::Tone.to_byte(),  // 0x0C
-                5,                                 // 0x0D portamento_time
-                8,                                 // 0x0E portamento_raw_0e
-                TvaReleaseMode::Mode2.to_byte(),   // 0x0F
-                90,                                // 0x10 string_level[0]
-                85,                                // 0x11 string_level[1]
+                0x58 + slot_idx as u8,            // 0x00 synth_mode
+                bank,                             // 0x01 tone bank
+                pos,                              // 0x02 tone position
+                AnalogPuToneSw::Off.to_byte(),    // 0x03 tone_sw
+                100,                              // 0x04 tone_level
+                0x41,                             // 0x05 octave
+                OnOff::On.to_byte(),              // 0x06 chromatic
+                OnOff::Off.to_byte(),             // 0x07 legato
+                OnOff::On.to_byte(),              // 0x08 nuance_sw
+                0x40,                             // 0x09 pan
+                0x40,                             // 0x0A pitch_shift
+                0x40,                             // 0x0B pitch_fine
+                PortamentoSwitch::Tone.to_byte(), // 0x0C
+                5,                                // 0x0D portamento_time
+                8,                                // 0x0E portamento_raw_0e
+                TvaReleaseMode::Mode2.to_byte(),  // 0x0F
+                90,                               // 0x10 string_level[0]
+                85,                               // 0x11 string_level[1]
             ];
             frames.push(Frame::Dt1 {
                 device_id: 0x10,
@@ -6710,9 +6751,15 @@ mod tests {
         // line_route — they're not part of the documented header so
         // they fall through to PatchArea::unknown_bytes.
         let payload: Vec<u8> = vec![
-            80, 75, 70, 65, 60, 55,        // 0x10..=0x15 string_level
-            LineRoute::Mfx.to_byte(),      // 0x16 line_route
-            0xE1, 0xE2,                    // 0x17/0x18 — fall through
+            80,
+            75,
+            70,
+            65,
+            60,
+            55,                       // 0x10..=0x15 string_level
+            LineRoute::Mfx.to_byte(), // 0x16 line_route
+            0xE1,
+            0xE2, // 0x17/0x18 — fall through
         ];
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
@@ -6761,35 +6808,48 @@ mod tests {
         let mut pcm = Pcm::default();
         // Filter Type (0x00), Cutoff (0x01), Portamento Type (0x1B),
         // LFO2 Rate (0x22), and one out-of-range byte at 0x30.
-        pcm.raw_tail.insert(0x00, 2);  // LPF
+        pcm.raw_tail.insert(0x00, 2); // LPF
         pcm.raw_tail.insert(0x01, 64);
-        pcm.raw_tail.insert(0x1B, 1);  // TIME
+        pcm.raw_tail.insert(0x1B, 1); // TIME
         pcm.raw_tail.insert(0x22, 50);
         pcm.raw_tail.insert(0x30, 0x99);
 
         let collected: Vec<_> = pcm.iter_tail_params().collect();
-        let by_off: std::collections::BTreeMap<u8, (u8, Option<&str>, Option<crate::pcm_tail_params::PcmTailGroup>)> =
-            collected
-                .iter()
-                .map(|(off, b, entry)| {
-                    (
-                        *off,
-                        (*b, entry.map(|e| e.name), entry.map(|e| e.group)),
-                    )
-                })
-                .collect();
+        let by_off: std::collections::BTreeMap<
+            u8,
+            (
+                u8,
+                Option<&str>,
+                Option<crate::pcm_tail_params::PcmTailGroup>,
+            ),
+        > = collected
+            .iter()
+            .map(|(off, b, entry)| (*off, (*b, entry.map(|e| e.name), entry.map(|e| e.group))))
+            .collect();
 
         assert_eq!(
             by_off.get(&0x00),
-            Some(&(2, Some("Filter Type"), Some(crate::pcm_tail_params::PcmTailGroup::Filter)))
+            Some(&(
+                2,
+                Some("Filter Type"),
+                Some(crate::pcm_tail_params::PcmTailGroup::Filter)
+            ))
         );
         assert_eq!(
             by_off.get(&0x1B),
-            Some(&(1, Some("Portamento Type"), Some(crate::pcm_tail_params::PcmTailGroup::Portamento)))
+            Some(&(
+                1,
+                Some("Portamento Type"),
+                Some(crate::pcm_tail_params::PcmTailGroup::Portamento)
+            ))
         );
         assert_eq!(
             by_off.get(&0x22),
-            Some(&(50, Some("LFO2 Rate"), Some(crate::pcm_tail_params::PcmTailGroup::Lfo)))
+            Some(&(
+                50,
+                Some("LFO2 Rate"),
+                Some(crate::pcm_tail_params::PcmTailGroup::Lfo)
+            ))
         );
         // 0x30 is beyond the documented range — metadata is None.
         assert_eq!(by_off.get(&0x30), Some(&(0x99, None, None)));
@@ -6892,7 +6952,10 @@ mod tests {
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
         assert!(area.master_assigns[5].is_some());
-        assert_eq!(area.master_assigns[5].as_ref().unwrap().on_off, Some(OnOff::On));
+        assert_eq!(
+            area.master_assigns[5].as_ref().unwrap().on_off,
+            Some(OnOff::On)
+        );
         for i in [0, 1, 2, 3, 4, 6, 7] {
             assert!(area.master_assigns[i].is_none(), "slot {i} should be None");
         }

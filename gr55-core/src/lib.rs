@@ -14,12 +14,12 @@ pub(crate) mod modeling_tail_serde;
 pub mod patch;
 pub mod pcm_tail_params;
 
-#[cfg(test)]
-pub(crate) mod test_support;
 pub(crate) mod pcm_tail_serde;
 pub mod pcm_tones;
 pub mod sysex;
 pub mod system;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 pub use address::{AddressSpace, PatchSlot, PatchSlotError};
 pub use patch::{PatchArea, PatchMode, PatchName};

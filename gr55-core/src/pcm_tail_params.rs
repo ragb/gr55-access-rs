@@ -110,13 +110,24 @@ pub const PCM_TAIL_PARAM_COUNT: usize = 0x28;
 // Named-value tables shared by multiple parameters. Static refs keep
 // each PCM_TAIL_PARAMS entry small and dedupe these enum-variant lists.
 const FILTER_TYPE_VALUES: &[(u8, &str)] = &[
-    (0x00, "OFF"), (0x01, "LPF"), (0x02, "BPF"), (0x03, "HPF"),
-    (0x04, "PKG"), (0x05, "LPF2"), (0x06, "LPF3"), (0x07, "TONE"),
+    (0x00, "OFF"),
+    (0x01, "LPF"),
+    (0x02, "BPF"),
+    (0x03, "HPF"),
+    (0x04, "PKG"),
+    (0x05, "LPF2"),
+    (0x06, "LPF3"),
+    (0x07, "TONE"),
 ];
 const VELOCITY_CURVE_VALUES: &[(u8, &str)] = &[
     (0x00, "FIX"),
-    (0x01, "1"), (0x02, "2"), (0x03, "3"), (0x04, "4"),
-    (0x05, "5"), (0x06, "6"), (0x07, "7"),
+    (0x01, "1"),
+    (0x02, "2"),
+    (0x03, "3"),
+    (0x04, "4"),
+    (0x05, "5"),
+    (0x06, "6"),
+    (0x07, "7"),
     (0x08, "TONE"),
 ];
 const PORTAMENTO_TYPE_VALUES: &[(u8, &str)] = &[(0x00, "RATE"), (0x01, "TIME")];

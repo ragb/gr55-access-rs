@@ -152,21 +152,21 @@ pub fn trailing_bytes_after_last_slot(bytes: &[u8]) -> usize {
 /// writer lays them out. Block 0x04 is 114 bytes per the writer's
 /// truncated save; see the module docs.
 const BLOCK_LAYOUT: &[(usize, usize, u8)] = &[
-    (12, 128, 0x00),    // Names + Pedal
-    (140, 114, 0x01),   // Master Assigns part 1 (offsets 0x00..0x71)
-    (262, 14, 0x01),    // Master Assigns part 2 (offsets 0x72..0x7F)
-    (276, 78, 0x02),    // Patch Common (offsets 0x00..0x4D)
-    (362, 128, 0x03),   // MFX page 1
-    (490, 114, 0x04),   // MFX page 2 (FB bug: last 14 not stored)
-    (618, 18, 0x05),    // "blank nul" reserved
-    (652, 30, 0x06),    // Chorus/Delay/Reverb/EQ
-    (690, 125, 0x07),   // MOD/AMP
-    (823, 128, 0x10),   // Modeling page 1
-    (951, 86, 0x11),    // Modeling page 2
-    (1045, 35, 0x20),   // PCM 1 header
-    (1084, 35, 0x21),   // PCM 2 header
-    (1127, 52, 0x30),   // PCM 1 tail
-    (1183, 52, 0x31),   // PCM 2 tail
+    (12, 128, 0x00),  // Names + Pedal
+    (140, 114, 0x01), // Master Assigns part 1 (offsets 0x00..0x71)
+    (262, 14, 0x01),  // Master Assigns part 2 (offsets 0x72..0x7F)
+    (276, 78, 0x02),  // Patch Common (offsets 0x00..0x4D)
+    (362, 128, 0x03), // MFX page 1
+    (490, 114, 0x04), // MFX page 2 (FB bug: last 14 not stored)
+    (618, 18, 0x05),  // "blank nul" reserved
+    (652, 30, 0x06),  // Chorus/Delay/Reverb/EQ
+    (690, 125, 0x07), // MOD/AMP
+    (823, 128, 0x10), // Modeling page 1
+    (951, 86, 0x11),  // Modeling page 2
+    (1045, 35, 0x20), // PCM 1 header
+    (1084, 35, 0x21), // PCM 2 header
+    (1127, 52, 0x30), // PCM 1 tail
+    (1183, 52, 0x31), // PCM 2 tail
 ];
 
 fn extract_patch(slot_index: usize, slot: &[u8]) -> G5lPatch {
@@ -201,7 +201,10 @@ fn extract_patch(slot_index: usize, slot: &[u8]) -> G5lPatch {
                     bytes: buf,
                 });
             }
-            blocks.push(G5lBlock { block, bytes: payload });
+            blocks.push(G5lBlock {
+                block,
+                bytes: payload,
+            });
         }
     }
     // No more block-0x01 chunks after the layout list ends, but flush

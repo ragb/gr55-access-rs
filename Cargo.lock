@@ -284,7 +284,9 @@ dependencies = [
  "gr55-core",
  "log",
  "midir",
+ "schemars",
  "serde",
+ "serde_json",
  "serde_yaml",
 ]
 
@@ -307,6 +309,7 @@ dependencies = [
  "gr55-core",
  "serde",
  "serde-wasm-bindgen",
+ "serde_yaml",
  "tsify-next",
  "wasm-bindgen",
 ]

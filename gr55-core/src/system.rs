@@ -3515,7 +3515,7 @@ mod tests {
         payload.push(Rating0To10::new(8).unwrap().to_byte()); // 0x20 nuance_dynamics
         payload.push(Rating0To10::new(2).unwrap().to_byte()); // 0x21 nuance_trim
         payload.push(DownShift::new(-3).unwrap().to_byte()); // 0x22 down_shift
-        // ---- Bass Mode block ----
+                                                             // ---- Bass Mode block ----
         payload.extend([b'B', b'a', b's', b's']); // 0x23..0x26 bass name
         payload.extend([0x20, 0x20, 0x20, 0x20]); // 0x27..0x2A bass name pad
         payload.push(BassHexPuType::Gk2b.to_byte()); // 0x2B

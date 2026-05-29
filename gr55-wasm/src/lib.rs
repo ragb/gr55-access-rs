@@ -44,9 +44,12 @@ pub fn help_for(name: &str) -> Option<String> {
 #[wasm_bindgen(js_name = importG5lToYaml)]
 pub fn import_g5l_to_yaml(bytes: &[u8], slot: usize, base_msb: u8) -> Result<String, JsValue> {
     let patches = g5l::parse(bytes).map_err(js_err)?;
-    let p = patches
-        .get(slot)
-        .ok_or_else(|| js_err(format!("slot {slot} out of range ({} slots)", patches.len())))?;
+    let p = patches.get(slot).ok_or_else(|| {
+        js_err(format!(
+            "slot {slot} out of range ({} slots)",
+            patches.len()
+        ))
+    })?;
     let area = p.to_patch_area(base_msb);
     serde_yaml::to_string(&area).map_err(js_err)
 }

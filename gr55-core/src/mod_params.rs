@@ -68,10 +68,7 @@ mod tests {
         assert_eq!(MOD_PARAMS.len(), MOD_BLOCK_SIZE);
         assert_eq!(MOD_BLOCK_SIZE, 128);
         for (i, entry) in MOD_PARAMS.iter().enumerate() {
-            assert_eq!(
-                entry.page, 0x07,
-                "MOD_PARAMS[{i}] should be on page 0x07"
-            );
+            assert_eq!(entry.page, 0x07, "MOD_PARAMS[{i}] should be on page 0x07");
             assert_eq!(
                 entry.offset as usize, i,
                 "MOD_PARAMS[{i}] offset should match index"

@@ -173,6 +173,10 @@ mod tests {
         let mut names: Vec<&str> = HELP_ENTRIES.iter().map(|(n, _)| *n).collect();
         names.sort_unstable();
         names.dedup();
-        assert_eq!(names.len(), HELP_ENTRIES.len(), "duplicate names in HELP_ENTRIES");
+        assert_eq!(
+            names.len(),
+            HELP_ENTRIES.len(),
+            "duplicate names in HELP_ENTRIES"
+        );
     }
 }

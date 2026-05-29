@@ -31,7 +31,9 @@ fn main() -> Result<()> {
             } else if let Some(slot) = target.user_patch {
                 dump_patch(&cli, output, user_patch_base(slot)?, timeout)
             } else {
-                anyhow::bail!("no dump target selected (use --system, --temp-patch, or --user-patch)")
+                anyhow::bail!(
+                    "no dump target selected (use --system, --temp-patch, or --user-patch)"
+                )
             }
         }
         Command::Sync {
@@ -46,7 +48,9 @@ fn main() -> Result<()> {
             } else if let Some(slot) = target.user_patch {
                 sync_patch(&cli, input, *verify, user_patch_base(slot)?, timeout)
             } else {
-                anyhow::bail!("no sync target selected (use --system, --temp-patch, or --user-patch)")
+                anyhow::bail!(
+                    "no sync target selected (use --system, --temp-patch, or --user-patch)"
+                )
             }
         }
         Command::Show { patch, file } => show(*patch, file),
@@ -66,13 +70,11 @@ fn schema_emit(target: SchemaTarget, output: &Path) -> Result<()> {
         SchemaTarget::Patch => schemars::schema_for!(PatchArea),
         SchemaTarget::System => schemars::schema_for!(SystemArea),
     };
-    let json = serde_json::to_string_pretty(&schema)
-        .context("serializing schema")?;
+    let json = serde_json::to_string_pretty(&schema).context("serializing schema")?;
     if output == Path::new("-") {
         println!("{json}");
     } else {
-        std::fs::write(output, json)
-            .with_context(|| format!("writing {}", output.display()))?;
+        std::fs::write(output, json).with_context(|| format!("writing {}", output.display()))?;
     }
     Ok(())
 }
@@ -257,7 +259,11 @@ fn dump_patch(cli: &Cli, output: &Path, base: [u8; 4], timeout: Duration) -> Res
         if output == Path::new("-") {
             "<stdout>".to_string()
         } else {
-            output.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string()
+            output
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("?")
+                .to_string()
         },
         area.unknown_bytes.len(),
     );
@@ -399,10 +405,9 @@ fn diff(patch: bool, a_path: &Path, b_path: &Path) -> Result<()> {
 }
 
 fn import_g5l(input: &Path, slot: usize, output: &Path) -> Result<()> {
-    let bytes = std::fs::read(input)
-        .with_context(|| format!("reading {}", input.display()))?;
-    let patches = gr55_core::g5l::parse(&bytes)
-        .with_context(|| format!("parsing {}", input.display()))?;
+    let bytes = std::fs::read(input).with_context(|| format!("reading {}", input.display()))?;
+    let patches =
+        gr55_core::g5l::parse(&bytes).with_context(|| format!("parsing {}", input.display()))?;
     let p = patches
         .get(slot)
         .with_context(|| format!("slot {slot} out of range ({} slots in file)", patches.len()))?;

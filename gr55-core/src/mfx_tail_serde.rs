@@ -44,10 +44,7 @@ pub fn serialize<S: Serializer>(map: &BTreeMap<u16, u8>, ser: S) -> Result<S::Ok
     let mut grouped: BTreeMap<String, BTreeMap<String, u8>> = BTreeMap::new();
     for (&lin, &b) in map {
         let (group_key, inner_key) = classify(lin);
-        grouped
-            .entry(group_key)
-            .or_default()
-            .insert(inner_key, b);
+        grouped.entry(group_key).or_default().insert(inner_key, b);
     }
     grouped.serialize(ser)
 }
