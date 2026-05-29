@@ -28,6 +28,62 @@
 
 include!("generated/mfx_params.rs");
 
+impl MfxTypeOwner {
+    /// Snake_case identifier suitable for YAML keys (e.g.
+    /// `MfxTypeOwner::SuperFilter` → `"super_filter"`).
+    pub fn as_snake(&self) -> &'static str {
+        match self {
+            MfxTypeOwner::Equalizer => "equalizer",
+            MfxTypeOwner::SuperFilter => "super_filter",
+            MfxTypeOwner::Phaser => "phaser",
+            MfxTypeOwner::StepPhaser => "step_phaser",
+            MfxTypeOwner::RingModulator => "ring_modulator",
+            MfxTypeOwner::Tremolo => "tremolo",
+            MfxTypeOwner::AutoPan => "auto_pan",
+            MfxTypeOwner::Slicer => "slicer",
+            MfxTypeOwner::VkRotary => "vk_rotary",
+            MfxTypeOwner::HexaChorus => "hexa_chorus",
+            MfxTypeOwner::SpaceD => "space_d",
+            MfxTypeOwner::Flanger => "flanger",
+            MfxTypeOwner::StepFlanger => "step_flanger",
+            MfxTypeOwner::GuitarAmpSim => "guitar_amp_sim",
+            MfxTypeOwner::Compressor => "compressor",
+            MfxTypeOwner::Limiter => "limiter",
+            MfxTypeOwner::ThreeTapPanDelay => "three_tap_pan_delay",
+            MfxTypeOwner::TimeCtrlDelay => "time_ctrl_delay",
+            MfxTypeOwner::LofiCompressor => "lofi_compressor",
+            MfxTypeOwner::PitchShifter => "pitch_shifter",
+        }
+    }
+
+    /// Inverse of [`as_snake`]. Returns `None` for unknown strings.
+    pub fn from_snake(s: &str) -> Option<Self> {
+        Some(match s {
+            "equalizer" => MfxTypeOwner::Equalizer,
+            "super_filter" => MfxTypeOwner::SuperFilter,
+            "phaser" => MfxTypeOwner::Phaser,
+            "step_phaser" => MfxTypeOwner::StepPhaser,
+            "ring_modulator" => MfxTypeOwner::RingModulator,
+            "tremolo" => MfxTypeOwner::Tremolo,
+            "auto_pan" => MfxTypeOwner::AutoPan,
+            "slicer" => MfxTypeOwner::Slicer,
+            "vk_rotary" => MfxTypeOwner::VkRotary,
+            "hexa_chorus" => MfxTypeOwner::HexaChorus,
+            "space_d" => MfxTypeOwner::SpaceD,
+            "flanger" => MfxTypeOwner::Flanger,
+            "step_flanger" => MfxTypeOwner::StepFlanger,
+            "guitar_amp_sim" => MfxTypeOwner::GuitarAmpSim,
+            "compressor" => MfxTypeOwner::Compressor,
+            "limiter" => MfxTypeOwner::Limiter,
+            "three_tap_pan_delay" => MfxTypeOwner::ThreeTapPanDelay,
+            "time_ctrl_delay" => MfxTypeOwner::TimeCtrlDelay,
+            "lofi_compressor" => MfxTypeOwner::LofiCompressor,
+            "pitch_shifter" => MfxTypeOwner::PitchShifter,
+            _ => return None,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

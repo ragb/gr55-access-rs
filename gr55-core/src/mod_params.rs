@@ -17,6 +17,48 @@
 
 include!("generated/mod_params.rs");
 
+impl ModTypeOwner {
+    /// Snake_case identifier suitable for YAML keys.
+    pub fn as_snake(&self) -> &'static str {
+        match self {
+            ModTypeOwner::Distortion => "distortion",
+            ModTypeOwner::Wah => "wah",
+            ModTypeOwner::Compressor => "compressor",
+            ModTypeOwner::Limiter => "limiter",
+            ModTypeOwner::Octave => "octave",
+            ModTypeOwner::Phaser => "phaser",
+            ModTypeOwner::Flanger => "flanger",
+            ModTypeOwner::Tremolo => "tremolo",
+            ModTypeOwner::Rotary => "rotary",
+            ModTypeOwner::UniVibe => "uni_vibe",
+            ModTypeOwner::Panner => "panner",
+            ModTypeOwner::Delay => "delay",
+            ModTypeOwner::Chorus => "chorus",
+            ModTypeOwner::Equalizer => "equalizer",
+        }
+    }
+
+    pub fn from_snake(s: &str) -> Option<Self> {
+        Some(match s {
+            "distortion" => ModTypeOwner::Distortion,
+            "wah" => ModTypeOwner::Wah,
+            "compressor" => ModTypeOwner::Compressor,
+            "limiter" => ModTypeOwner::Limiter,
+            "octave" => ModTypeOwner::Octave,
+            "phaser" => ModTypeOwner::Phaser,
+            "flanger" => ModTypeOwner::Flanger,
+            "tremolo" => ModTypeOwner::Tremolo,
+            "rotary" => ModTypeOwner::Rotary,
+            "uni_vibe" => ModTypeOwner::UniVibe,
+            "panner" => ModTypeOwner::Panner,
+            "delay" => ModTypeOwner::Delay,
+            "chorus" => ModTypeOwner::Chorus,
+            "equalizer" => ModTypeOwner::Equalizer,
+            _ => return None,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

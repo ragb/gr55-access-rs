@@ -39,6 +39,36 @@ pub enum PcmTailGroup {
     Reserved,
 }
 
+impl PcmTailGroup {
+    /// Snake_case identifier suitable for YAML keys.
+    pub fn as_snake(&self) -> &'static str {
+        match self {
+            PcmTailGroup::Filter => "filter",
+            PcmTailGroup::Tvf => "tvf",
+            PcmTailGroup::Velocity => "velocity",
+            PcmTailGroup::Tva => "tva",
+            PcmTailGroup::PitchEnv => "pitch_env",
+            PcmTailGroup::Lfo => "lfo",
+            PcmTailGroup::Portamento => "portamento",
+            PcmTailGroup::Reserved => "reserved",
+        }
+    }
+
+    pub fn from_snake(s: &str) -> Option<Self> {
+        Some(match s {
+            "filter" => PcmTailGroup::Filter,
+            "tvf" => PcmTailGroup::Tvf,
+            "velocity" => PcmTailGroup::Velocity,
+            "tva" => PcmTailGroup::Tva,
+            "pitch_env" => PcmTailGroup::PitchEnv,
+            "lfo" => PcmTailGroup::Lfo,
+            "portamento" => PcmTailGroup::Portamento,
+            "reserved" => PcmTailGroup::Reserved,
+            _ => return None,
+        })
+    }
+}
+
 /// One byte of the tail page.
 #[derive(Debug, Clone, Copy)]
 pub struct PcmTailParamEntry {

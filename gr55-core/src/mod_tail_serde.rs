@@ -1,105 +1,137 @@
-//! Custom serde for [`crate::patch::Mod::raw_tail`] that emits and
-//! parses **named keys** like `"Distortion Drive"` or `"Wah Mode"`
-//! instead of raw integer offsets. Drives the human-readable YAML
-//! preset format.
+//! Custom serde for [`crate::patch::Mod::raw_tail`] — same grouping
+//! pattern as [`crate::mfx_tail_serde`], applied to the MOD block on
+//! page 0x07. Bytes are emitted as a two-level map keyed by owning
+//! effect type ([`ModTypeOwner`]) → parameter name.
 //!
-//! Names in [`crate::mod_params::MOD_PARAMS`] are unique by
-//! construction (each effect type's params are prefixed with the
-//! type name — `"Distortion Drive"`, `"Wah Mode"`, etc.), so the
-//! lookup is unambiguous.
-//!
-//! ## Format
-//!
-//! - Bytes whose offset has a non-empty name in `MOD_PARAMS`
-//!   serialize using that name.
-//! - Bytes whose offset is unnamed (the `customdesc=""` / `"null"`
-//!   placeholder slots inside MOD's reserved range) fall back to
-//!   `"0xNN"` hex strings.
-//! - Deserialization accepts EITHER form.
+//! ```yaml
+//! modulation:
+//!   mod_type: distortion
+//!   raw_tail:
+//!     distortion:                # ACTIVE
+//!       Distortion Drive: 90
+//!       Distortion Tone: 60
+//!     wah:                       # dormant but persisted
+//!       Wah Mode: 0
+//!       Wah Sens: 50
+//!     ...
+//!     unmapped:                  # offsets w/o a named param
+//!       "0x14": 0
+//! ```
 
 use std::collections::BTreeMap;
 
+use serde::de::Error as DeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::mod_params::MOD_PARAMS;
+use crate::mod_params::{ModTypeOwner, MOD_PARAMS};
+
+const UNMAPPED_KEY: &str = "unmapped";
 
 pub fn serialize<S: Serializer>(map: &BTreeMap<u8, u8>, ser: S) -> Result<S::Ok, S::Error> {
-    let named: BTreeMap<String, u8> = map
-        .iter()
-        .map(|(&off, &b)| {
-            let key = match MOD_PARAMS.get(off as usize) {
-                Some(entry) if !entry.name.is_empty() => entry.name.to_string(),
-                _ => format!("0x{off:02X}"),
-            };
-            (key, b)
-        })
-        .collect();
-    named.serialize(ser)
+    let mut grouped: BTreeMap<String, BTreeMap<String, u8>> = BTreeMap::new();
+    for (&off, &b) in map {
+        let (group_key, inner_key) = classify(off);
+        grouped
+            .entry(group_key)
+            .or_default()
+            .insert(inner_key, b);
+    }
+    grouped.serialize(ser)
 }
 
 pub fn deserialize<'de, D: Deserializer<'de>>(de: D) -> Result<BTreeMap<u8, u8>, D::Error> {
-    let raw: BTreeMap<String, u8> = BTreeMap::deserialize(de)?;
+    let grouped: BTreeMap<String, BTreeMap<String, u8>> = BTreeMap::deserialize(de)?;
     let mut out = BTreeMap::new();
-    for (key, byte) in raw {
-        let off = resolve_key(&key).ok_or_else(|| {
-            serde::de::Error::custom(format!(
-                "unknown MOD param key {key:?}: not a documented \
-                 parameter name and not a parseable offset"
-            ))
-        })?;
-        out.insert(off, byte);
+    for (group, inner) in &grouped {
+        for (inner_key, &byte) in inner {
+            let off = resolve_inner_key(group, inner_key).ok_or_else(|| {
+                D::Error::custom(format!(
+                    "unknown MOD param key {inner_key:?} under group {group:?}: \
+                     not a documented parameter name and not a parseable hex offset"
+                ))
+            })?;
+            out.insert(off, byte);
+        }
     }
     Ok(out)
 }
 
-fn resolve_key(key: &str) -> Option<u8> {
-    let trimmed = key.trim();
-    // MOD_PARAMS is indexed by offset (0..=127), so a linear scan over
-    // 128 entries is fine.
+fn classify(off: u8) -> (String, String) {
+    let entry = MOD_PARAMS.iter().find(|e| e.offset == off);
+    match entry {
+        Some(e) if e.owning_type.is_some() && !e.name.is_empty() => (
+            e.owning_type.unwrap().as_snake().to_string(),
+            e.name.to_string(),
+        ),
+        Some(e) if !e.name.is_empty() => (UNMAPPED_KEY.to_string(), e.name.to_string()),
+        _ => (UNMAPPED_KEY.to_string(), format!("0x{off:02X}")),
+    }
+}
+
+fn resolve_inner_key(group: &str, inner: &str) -> Option<u8> {
+    let trimmed = inner.trim();
+    if group == UNMAPPED_KEY {
+        if let Some(off) = parse_hex_u8(trimmed) {
+            return Some(off);
+        }
+        return find_name(None, trimmed);
+    }
+    let owner = ModTypeOwner::from_snake(group)?;
+    if let Some(off) = find_name(Some(owner), trimmed) {
+        return Some(off);
+    }
+    parse_hex_u8(trimmed)
+}
+
+fn parse_hex_u8(s: &str) -> Option<u8> {
+    let hex = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X"))?;
+    u8::from_str_radix(hex, 16).ok()
+}
+
+fn find_name(owner: Option<ModTypeOwner>, name: &str) -> Option<u8> {
     for entry in MOD_PARAMS.iter() {
-        if !entry.name.is_empty() && entry.name == trimmed {
+        if entry.name.is_empty() {
+            continue;
+        }
+        if entry.owning_type != owner {
+            continue;
+        }
+        if entry.name == name {
             return Some(entry.offset);
         }
     }
-    if let Some(hex) = trimmed
-        .strip_prefix("0x")
-        .or_else(|| trimmed.strip_prefix("0X"))
-    {
-        if let Ok(v) = u8::from_str_radix(hex, 16) {
-            return Some(v);
-        }
-    }
-    trimmed.parse::<u8>().ok()
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::patch::Mod;
 
     #[test]
-    fn resolve_key_known_names() {
-        assert_eq!(resolve_key("Distortion Drive"), Some(0x19));
-        assert_eq!(resolve_key("Distortion Tone"), Some(0x1A));
-        assert_eq!(resolve_key("Wah Mode"), Some(0x1C));
-        assert_eq!(resolve_key("Wah Sens"), Some(0x1F));
-        // Hex fallback.
-        assert_eq!(resolve_key("0x19"), Some(0x19));
-        // Unknown returns None.
-        assert!(resolve_key("Made-Up Param").is_none());
+    fn classify_picks_owning_type_for_known_bytes() {
+        // Distortion Drive at offset 0x19 (per the previous
+        // resolve_key_known_names test).
+        let (g, n) = classify(0x19);
+        assert_eq!(g, "distortion");
+        assert_eq!(n, "Distortion Drive");
+        // Wah Mode at 0x1C.
+        let (g, n) = classify(0x1C);
+        assert_eq!(g, "wah");
+        assert_eq!(n, "Wah Mode");
     }
 
     #[test]
-    fn yaml_round_trip_uses_named_keys() {
-        use crate::patch::Mod;
+    fn yaml_round_trip_groups_by_effect_type() {
         let mut modu = Mod::default();
         modu.raw_tail.insert(0x19, 90); // Distortion Drive
         modu.raw_tail.insert(0x1A, 60); // Distortion Tone
-        modu.raw_tail.insert(0x1C, 0);  // Wah Mode
-
+        modu.raw_tail.insert(0x1C, 0); // Wah Mode
         let yaml = serde_yaml::to_string(&modu).unwrap();
         eprintln!("{yaml}");
+        assert!(yaml.contains("distortion:"));
         assert!(yaml.contains("Distortion Drive: 90"));
-        assert!(yaml.contains("Distortion Tone: 60"));
+        assert!(yaml.contains("wah:"));
         assert!(yaml.contains("Wah Mode: 0"));
 
         let back: Mod = serde_yaml::from_str(&yaml).unwrap();
