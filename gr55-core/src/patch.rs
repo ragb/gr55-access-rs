@@ -1797,54 +1797,79 @@ pub struct Pcm {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line_route: Option<LineRoute>,
 
-    /// Bytes at offsets `0x17..=0x7F` that FloorBoard `midi.xml` tags
-    /// as `customdesc="null"`. They're **not** reserved padding —
-    /// they're a standard Roland synth-voice parameter block. The
-    /// GR-55 Owner's Manual (pages 25–27, "Parameter List PCM TONE
-    /// 1/PCM TONE 2") names the groups:
+    /// Decode-time buffer for the header-page bank byte (`0x20:0x01`
+    /// or `0x21:0x01`). Lifted into [`synth_tone`] in `finalize`.
+    #[doc(hidden)]
+    #[serde(skip)]
+    pending_bank: Option<u8>,
+    /// Decode-time buffer for the header-page position byte (`0x20:0x02`
+    /// or `0x21:0x02`). Lifted into [`synth_tone`] in `finalize`.
+    #[doc(hidden)]
+    #[serde(skip)]
+    pending_pos: Option<u8>,
+
+    /// Bytes on this PCM tone's **tail page** (`0x30` for Tone 1,
+    /// `0x31` for Tone 2), keyed by offset within that page (`0x00..=0x7F`).
     ///
-    /// - **TONE**: Level Velocity Sens, Velocity Curve Type
-    ///   (FIX/1–7/TONE)
-    /// - **FILTER**: Filter Type (OFF/LPF/BPF/HPF/PKG/LPF2/LPF3/TONE),
-    ///   Cutoff (-50..=+50), Resonance, Cutoff Velocity Sens,
-    ///   Cutoff Nuance Sens, Cutoff Velocity Curve, Cutoff Keyfollow
-    ///   (-200..=+200)
-    /// - **TVF**: Env Depth, Attack/Decay/Release Time, Sustain Level,
-    ///   Attack Vel Sens, Atk Nuance Sens
-    /// - **TVA**: Attack/Decay/Release Time, Sustain Level, Attack Vel
-    ///   Sens, Atk Nuance Sens, Level Nuance Sens
-    /// - **PITCH ENV**: Vel Sens, Depth (-12..=+12), Attack/Decay Time
-    /// - **LFO1 / LFO2**: Rate (0–100/BPM/TONE), Pitch / TVF / TVA /
-    ///   Pan Depth (each OFF or -50..=+50)
+    /// FloorBoard `midi.xml` tags every byte here as `customdesc="null"`,
+    /// but FloorBoard's *C++ source* (specifically
+    /// `soundSource_synth_a.cpp` lines 88–158) documents the complete
+    /// layout. The tail holds the standard Roland synth-voice
+    /// parameter block:
     ///
-    /// The owner's manual lists the parameter NAMES and value RANGES
-    /// but NOT byte offsets. Roland does not appear to have published a
-    /// separate "MIDI Implementation" document for the GR-55 — the
-    /// MIDI Implementation Chart on page 94 of the owner's manual is
-    /// only the AMEI standard summary (Channel/Mode/Note/CC/etc.), not
-    /// a parameter address map. So we know what these bytes mean
-    /// conceptually but cannot byte-map them precisely without
-    /// additional reverse-engineering against hardware.
+    /// | Offset | Param | Offset | Param |
+    /// |---|---|---|---|
+    /// | 0x00 | Filter Type | 0x14 | TVA Attack Vel Sens |
+    /// | 0x01 | Cutoff | 0x15 | TVA Atk Nuance Sens |
+    /// | 0x02 | Resonance | 0x16 | TVA Level Nuance Sens |
+    /// | 0x03 | Cutoff Vel Sens | 0x17 | Pitch ENV Vel Sens |
+    /// | 0x04 | Cutoff Vel Curve | 0x18 | Pitch ENV Depth |
+    /// | 0x05 | Cutoff Keyfollow | 0x19 | Pitch Attack Time |
+    /// | 0x06 | Cutoff Nuance Sens | 0x1A | Pitch Decay Time |
+    /// | 0x07 | TVF Env Depth | 0x1B | Portamento Type (RATE/TIME) |
+    /// | 0x08 | TVF Attack Time | 0x1C | LFO1 Rate |
+    /// | 0x09 | TVF Decay Time | 0x1E–0x21 | LFO1 Pitch/TVF/TVA/Pan Depth |
+    /// | 0x0A | TVF Sustain Level | 0x22 | LFO2 Rate |
+    /// | 0x0B | TVF Release Time | 0x24–0x27 | LFO2 Pitch/TVF/TVA/Pan Depth |
+    /// | 0x0C | TVF Attack Vel Sens | | |
+    /// | 0x0D | TVF Atk Nuance Sens | | |
+    /// | 0x0E | Level Velocity Sens | | |
+    /// | 0x0F | Velocity Curve Type | | |
+    /// | 0x10 | TVA Attack Time | | |
+    /// | 0x11 | TVA Decay Time | | |
+    /// | 0x12 | TVA Sustain Level | | |
+    /// | 0x13 | TVA Release Time | | |
     ///
-    /// Until the byte order is confirmed, these bytes round-trip
-    /// losslessly through this map keyed by page offset.
+    /// (Offsets `0x1D` and `0x23` are not referenced by FloorBoard's
+    /// UI — likely reserved.)
+    ///
+    /// These bytes round-trip losslessly through this map until a
+    /// follow-up commit promotes them to typed fields backed by a
+    /// build-time-generated param table.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub raw_tail: BTreeMap<u8, u8>,
 }
 
 impl Pcm {
-    fn store_byte(&mut self, off: u8, b: u8) -> bool {
+    /// Absorb a byte that arrived on this slot's **header page**
+    /// (`0x20` for Tone 1, `0x21` for Tone 2). The byte's offset
+    /// is within that page (`0x00..=0x7F`).
+    fn store_header_byte(&mut self, off: u8, b: u8) -> bool {
         match off {
             0x00 => {
                 self.synth_mode = Some(b);
                 true
             }
-            // 0x01 (bank) and 0x02 (position) are parked in `raw_tail`
-            // during the byte-by-byte pass and lifted into the typed
-            // `synth_tone: PcmToneIndex` field in `Pcm::finalize` once
-            // both bytes are known.
-            0x01 | 0x02 => {
-                self.raw_tail.insert(off, b);
+            // 0x01 (bank) and 0x02 (position) are parked in dedicated
+            // `pending_*` fields during the byte-by-byte pass and
+            // lifted into `synth_tone: PcmToneIndex` in `finalize`
+            // once both bytes are known.
+            0x01 => {
+                self.pending_bank = Some(b);
+                true
+            }
+            0x02 => {
+                self.pending_pos = Some(b);
                 true
             }
             0x03 => match AnalogPuToneSw::from_byte(b) {
@@ -1928,92 +1953,137 @@ impl Pcm {
                 }
                 None => false,
             },
-            0x17..=0x7F => {
-                self.raw_tail.insert(off, b);
-                true
-            }
+            // 0x17..=0x7F are FloorBoard-undocumented header-page
+            // offsets — most are placeholder/reserved bytes (the
+            // header page tops out at line_route at 0x16). Route to
+            // the patch-level unknown_bytes by failing the match.
             _ => false,
         }
     }
 
-    /// Combine the parked bank+position bytes at `raw_tail[0x01]` and
-    /// `raw_tail[0x02]` into the typed `synth_tone` field. Called once
-    /// from `PatchArea::from_frames_at` after the byte-by-byte sweep.
-    /// If only one of the two bytes is present, they stay in `raw_tail`
-    /// for lossless round-trip; if the combined linear value is out of
-    /// range, both bytes stay in `raw_tail`.
+    /// Absorb a byte that arrived on this slot's **tail page** (`0x30`
+    /// for Tone 1, `0x31` for Tone 2). The byte's offset is within
+    /// that page (`0x00..=0x7F`). All tail bytes currently pass
+    /// through `raw_tail`; a follow-up commit will type the documented
+    /// FILTER/TVF/TVA/Pitch ENV/LFO1/LFO2 parameters per
+    /// `soundSource_synth_a.cpp`.
+    fn store_tail_byte(&mut self, off: u8, b: u8) -> bool {
+        if off <= 0x7F {
+            self.raw_tail.insert(off, b);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Combine the parked bank+position bytes into the typed
+    /// `synth_tone` field. Called once from `PatchArea::from_frames_at`
+    /// after the byte-by-byte sweep. If only one of the two bytes is
+    /// present, they stay parked for the next round-trip; if the
+    /// combined linear value is out of range, both stay parked.
     fn finalize(&mut self) {
-        let bank = self.raw_tail.get(&0x01).copied();
-        let pos = self.raw_tail.get(&0x02).copied();
-        if let (Some(b), Some(p)) = (bank, pos) {
+        if let (Some(b), Some(p)) = (self.pending_bank, self.pending_pos) {
             if let Some(idx) = PcmToneIndex::from_two_bytes(b, p) {
                 self.synth_tone = Some(idx);
-                self.raw_tail.remove(&0x01);
-                self.raw_tail.remove(&0x02);
+                self.pending_bank = None;
+                self.pending_pos = None;
             }
         }
     }
 
-    fn emit_bytes(&self, bytes: &mut BTreeMap<[u8; 4], u8>, base_msb: u8, page: u8) {
-        macro_rules! put {
+    /// Emit this slot's bytes to its two wire pages (header_page +
+    /// tail_page, derived from the slot index via [`pcm_pages_for_slot`]).
+    fn emit_bytes(&self, bytes: &mut BTreeMap<[u8; 4], u8>, base_msb: u8, slot_idx: usize) {
+        let (header_page, tail_page) = pcm_pages_for_slot(slot_idx);
+        macro_rules! put_h {
             ($off:expr, $val:expr) => {
                 if let Some(v) = $val {
-                    bytes.insert([base_msb, page, 0x00, $off], v);
+                    bytes.insert([base_msb, header_page, 0x00, $off], v);
                 }
             };
         }
-        put!(0x00, self.synth_mode);
-        // synth_tone always emits both wire bytes when set.
+        put_h!(0x00, self.synth_mode);
+        // synth_tone always emits both wire bytes when set. If
+        // synth_tone is None but pending_bank/pending_pos survived a
+        // partial decode, emit those instead.
         if let Some(idx) = self.synth_tone {
             let [bank, pos] = idx.to_two_bytes();
-            bytes.insert([base_msb, page, 0x00, 0x01], bank);
-            bytes.insert([base_msb, page, 0x00, 0x02], pos);
+            bytes.insert([base_msb, header_page, 0x00, 0x01], bank);
+            bytes.insert([base_msb, header_page, 0x00, 0x02], pos);
+        } else {
+            if let Some(b) = self.pending_bank {
+                bytes.insert([base_msb, header_page, 0x00, 0x01], b);
+            }
+            if let Some(p) = self.pending_pos {
+                bytes.insert([base_msb, header_page, 0x00, 0x02], p);
+            }
         }
-        put!(0x03, self.tone_sw.map(AnalogPuToneSw::to_byte));
-        put!(0x04, self.tone_level);
-        put!(0x05, self.octave);
-        put!(0x06, self.chromatic.map(OnOff::to_byte));
-        put!(0x07, self.legato.map(OnOff::to_byte));
-        put!(0x08, self.nuance_sw.map(OnOff::to_byte));
-        put!(0x09, self.pan);
-        put!(0x0A, self.pitch_shift);
-        put!(0x0B, self.pitch_fine);
-        put!(0x0C, self.portamento_sw.map(PortamentoSwitch::to_byte));
-        put!(0x0D, self.portamento_time);
-        put!(0x0E, self.portamento_raw_0e);
-        put!(0x0F, self.tva_release_mode.map(TvaReleaseMode::to_byte));
+        put_h!(0x03, self.tone_sw.map(AnalogPuToneSw::to_byte));
+        put_h!(0x04, self.tone_level);
+        put_h!(0x05, self.octave);
+        put_h!(0x06, self.chromatic.map(OnOff::to_byte));
+        put_h!(0x07, self.legato.map(OnOff::to_byte));
+        put_h!(0x08, self.nuance_sw.map(OnOff::to_byte));
+        put_h!(0x09, self.pan);
+        put_h!(0x0A, self.pitch_shift);
+        put_h!(0x0B, self.pitch_fine);
+        put_h!(0x0C, self.portamento_sw.map(PortamentoSwitch::to_byte));
+        put_h!(0x0D, self.portamento_time);
+        put_h!(0x0E, self.portamento_raw_0e);
+        put_h!(0x0F, self.tva_release_mode.map(TvaReleaseMode::to_byte));
         for (i, v) in self.string_level.iter().enumerate() {
-            put!(0x10 + i as u8, *v);
+            put_h!(0x10 + i as u8, *v);
         }
-        put!(0x16, self.line_route.map(LineRoute::to_byte));
+        put_h!(0x16, self.line_route.map(LineRoute::to_byte));
         for (off, b) in &self.raw_tail {
-            bytes.insert([base_msb, page, 0x00, *off], *b);
+            bytes.insert([base_msb, tail_page, 0x00, *off], *b);
         }
     }
 }
 
-fn all_pcm_none(arr: &[Option<Pcm>; 4]) -> bool {
+fn all_pcm_none(arr: &[Option<Pcm>; 2]) -> bool {
     arr.iter().all(Option::is_none)
 }
 
-/// Maps a PCM-page byte (0x20 / 0x21 / 0x30 / 0x31) to a slot index
-/// 0..=3 in `PatchArea::pcm`.
-fn pcm_slot_for_page(page: u8) -> Option<usize> {
+/// Where each of a PCM tone's two MIDI pages routes inside a single
+/// `Pcm` slot.
+///
+/// **Wire model** (confirmed against FloorBoard's
+/// `soundSource_synth_a.cpp` / `soundSource_synth_b.cpp`): the GR-55
+/// has **two** PCM tones, not four. Each tone's data spans two pages:
+///
+/// - PCM Tone 1: common header on page `0x20`, tone-shaping tail
+///   (Filter / TVF / TVA / Pitch Env / LFO1 / LFO2) on page `0x30`.
+/// - PCM Tone 2: common header on `0x21`, tail on `0x31`.
+///
+/// FloorBoard `midi.xml` labels pages `0x30` / `0x31` as "PCM-1-B" /
+/// "PCM-2-B" which suggested four independent slots, but the actual
+/// MIDI memory layout pairs them with `0x20` / `0x21` as the same
+/// tone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PcmPageRole {
+    /// Slot index (0 = Tone 1, 1 = Tone 2) + this byte goes on the
+    /// common header page.
+    Header(usize),
+    /// Slot index + the byte goes on the tone-shaping tail page.
+    Tail(usize),
+}
+
+fn pcm_route_for_page(page: u8) -> Option<PcmPageRole> {
     match page {
-        0x20 => Some(0), // PCM-1-A
-        0x21 => Some(1), // PCM-2-A
-        0x30 => Some(2), // PCM-1-B
-        0x31 => Some(3), // PCM-2-B
+        0x20 => Some(PcmPageRole::Header(0)),
+        0x21 => Some(PcmPageRole::Header(1)),
+        0x30 => Some(PcmPageRole::Tail(0)),
+        0x31 => Some(PcmPageRole::Tail(1)),
         _ => None,
     }
 }
 
-fn pcm_page_for_slot(idx: usize) -> u8 {
+/// The two wire pages a slot writes its bytes to: `(header_page, tail_page)`.
+fn pcm_pages_for_slot(idx: usize) -> (u8, u8) {
     match idx {
-        0 => 0x20,
-        1 => 0x21,
-        2 => 0x30,
-        3 => 0x31,
+        0 => (0x20, 0x30),
+        1 => (0x21, 0x31),
         _ => unreachable!("pcm slot index out of range"),
     }
 }
@@ -4238,12 +4308,21 @@ pub struct PatchArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modeling: Option<Modeling>,
 
-    /// The 4 PCM tone slots: PCM-1-A (page `0x20`), PCM-2-A (`0x21`),
-    /// PCM-1-B (`0x30`), PCM-2-B (`0x31`). Each `Pcm` types the common
-    /// header at offsets `0x00..=0x0F` and keeps the type-dependent
-    /// tail at `0x10..=0x7F` in `Pcm::raw_tail`.
+    /// The 2 PCM tones. Each tone's data spans two MIDI pages:
+    ///
+    /// - `pcm[0]` = PCM Tone 1: header on page `0x20`, tone-shaping
+    ///   tail (Filter / TVF / TVA / Pitch Env / LFO1 / LFO2) on page
+    ///   `0x30`.
+    /// - `pcm[1]` = PCM Tone 2: header on `0x21`, tail on `0x31`.
+    ///
+    /// FloorBoard `midi.xml` labels pages `0x30` / `0x31` as
+    /// "PCM-1-B" / "PCM-2-B" which suggested four independent slots —
+    /// but FloorBoard's C++ source (`soundSource_synth_a.cpp` /
+    /// `_b.cpp`) confirms each tone's editor binds both pages
+    /// together. The MIDI memory layout is two tones × two pages, not
+    /// four independent slots.
     #[serde(default, skip_serializing_if = "all_pcm_none")]
-    pub pcm: [Option<Pcm>; 4],
+    pub pcm: [Option<Pcm>; 2],
 
     /// Everything inside the patch payload that the typed model doesn't yet
     /// cover. Keys are formatted `"PP:HH:LL"` — page byte, then the two
@@ -4603,13 +4682,23 @@ impl PatchArea {
                     self.unknown_bytes.insert(format_key(page, hi, lo), b);
                 }
             }
-            // PCM tone slots — pages 0x20, 0x21, 0x30, 0x31.
-            (_, 0x00, off) if pcm_slot_for_page(page).is_some() => {
-                let idx = pcm_slot_for_page(page).unwrap();
-                let pcm = self.pcm[idx].get_or_insert_with(Pcm::default);
-                if !pcm.store_byte(off, b) {
+            // PCM tone slots — pages 0x20/0x21 carry the header bytes
+            // for Tone 1/Tone 2, pages 0x30/0x31 carry their tail bytes.
+            (_, 0x00, off) if pcm_route_for_page(page).is_some() => {
+                let (idx, accepted) = match pcm_route_for_page(page).unwrap() {
+                    PcmPageRole::Header(idx) => {
+                        let pcm = self.pcm[idx].get_or_insert_with(Pcm::default);
+                        (idx, pcm.store_header_byte(off, b))
+                    }
+                    PcmPageRole::Tail(idx) => {
+                        let pcm = self.pcm[idx].get_or_insert_with(Pcm::default);
+                        (idx, pcm.store_tail_byte(off, b))
+                    }
+                };
+                if !accepted {
                     self.unknown_bytes.insert(format_key(page, hi, lo), b);
                 }
+                let _ = idx;
             }
             _ => {
                 self.unknown_bytes.insert(format_key(page, hi, lo), b);
@@ -5224,10 +5313,10 @@ impl PatchArea {
         if let Some(modeling) = &self.modeling {
             modeling.emit_bytes(&mut bytes, base_msb);
         }
-        // PCM tone slots
+        // PCM tones — each slot emits to two pages (header + tail).
         for (idx, slot) in self.pcm.iter().enumerate() {
             if let Some(pcm) = slot {
-                pcm.emit_bytes(&mut bytes, base_msb, pcm_page_for_slot(idx));
+                pcm.emit_bytes(&mut bytes, base_msb, idx);
             }
         }
         for (k, b) in &self.unknown_bytes {
@@ -6298,29 +6387,33 @@ mod tests {
     }
 
     #[test]
-    fn pcm_tone_header_round_trips_across_all_four_pages() {
-        let mut frames = Vec::new();
-        // Use a different (bank, position) per slot so any cross-slot
-        // mixup would surface.
+    fn pcm_tone_decodes_two_tones_each_spanning_two_pages() {
+        // Per FloorBoard's soundSource_synth_a.cpp / _b.cpp, each PCM
+        // tone has its header on page 0x20 (or 0x21) and its tone-
+        // shaping tail (Filter/TVF/TVA/...) on page 0x30 (or 0x31).
+        // Use different (bank, position) per tone + distinct
+        // header/tail bytes so any cross-tone mixup would surface.
         let tone_per_slot = [
-            (0_u8, 5_u8),  // slot 0 → tone 5 (St.Piano 6 area)
-            (1_u8, 12_u8), // slot 1 → tone 140
-            (4_u8, 60_u8), // slot 2 → tone 572
-            (7_u8, 13_u8), // slot 3 → tone 909 (last populated)
+            (0_u8, 5_u8),  // slot 0 → tone 5
+            (7_u8, 13_u8), // slot 1 → tone 909 (last populated)
         ];
-        for (slot_idx, page) in [(0_usize, 0x20_u8), (1, 0x21), (2, 0x30), (3, 0x31)] {
+        let mut frames = Vec::new();
+        for (slot_idx, (header_page, tail_page)) in
+            [(0_usize, (0x20_u8, 0x30_u8)), (1, (0x21, 0x31))]
+        {
             let (bank, pos) = tone_per_slot[slot_idx];
-            let payload: Vec<u8> = vec![
+            // Header bytes on header_page.
+            let header_payload: Vec<u8> = vec![
                 0x58 + slot_idx as u8,             // 0x00 synth_mode
                 bank,                              // 0x01 tone bank
                 pos,                               // 0x02 tone position
-                AnalogPuToneSw::Off.to_byte(),     // 0x03 tone_sw (= 0x01)
+                AnalogPuToneSw::Off.to_byte(),     // 0x03 tone_sw
                 100,                               // 0x04 tone_level
-                0x41,                              // 0x05 octave (= +1)
+                0x41,                              // 0x05 octave
                 OnOff::On.to_byte(),               // 0x06 chromatic
                 OnOff::Off.to_byte(),              // 0x07 legato
                 OnOff::On.to_byte(),               // 0x08 nuance_sw
-                0x40,                              // 0x09 pan (center)
+                0x40,                              // 0x09 pan
                 0x40,                              // 0x0A pitch_shift
                 0x40,                              // 0x0B pitch_fine
                 PortamentoSwitch::Tone.to_byte(),  // 0x0C
@@ -6332,15 +6425,24 @@ mod tests {
             ];
             frames.push(Frame::Dt1 {
                 device_id: 0x10,
-                address: [TEMP_MSB, page, 0x00, 0x00],
-                data: Cow::Owned(payload),
+                address: [TEMP_MSB, header_page, 0x00, 0x00],
+                data: Cow::Owned(header_payload),
+            });
+            // A few tail bytes on tail_page to verify routing.
+            frames.push(Frame::Dt1 {
+                device_id: 0x10,
+                address: [TEMP_MSB, tail_page, 0x00, 0x00],
+                data: Cow::Owned(vec![
+                    0xA0 + slot_idx as u8, // 0x00 Filter Type (raw)
+                    0xB0 + slot_idx as u8, // 0x01 Cutoff (raw)
+                ]),
             });
         }
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
 
-        let expected_linear = [5_u16, 140, 572, 909];
+        let expected_linear = [5_u16, 909];
         for (slot_idx, &expected) in expected_linear.iter().enumerate() {
-            let pcm = area.pcm[slot_idx].as_ref().expect("slot");
+            let pcm = area.pcm[slot_idx].as_ref().expect("slot should populate");
             assert_eq!(pcm.synth_mode, Some(0x58 + slot_idx as u8));
             assert_eq!(pcm.synth_tone.map(|t| t.get()), Some(expected));
             assert_eq!(pcm.tone_sw, Some(AnalogPuToneSw::Off));
@@ -6356,14 +6458,11 @@ mod tests {
             assert_eq!(pcm.portamento_time, Some(5));
             assert_eq!(pcm.portamento_raw_0e, Some(8));
             assert_eq!(pcm.tva_release_mode, Some(TvaReleaseMode::Mode2));
-            // Tail bytes preserved; 0x01 / 0x02 are NOT in raw_tail
-            // anymore because finalize lifted them out.
-            assert!(!pcm.raw_tail.contains_key(&0x01));
-            assert!(!pcm.raw_tail.contains_key(&0x02));
-            // 0x10 / 0x11 are now string_level[0] / string_level[1]
-            // (typed), not raw_tail.
             assert_eq!(pcm.string_level[0], Some(90));
             assert_eq!(pcm.string_level[1], Some(85));
+            // Tail bytes landed in raw_tail (keyed by tail-page offset).
+            assert_eq!(pcm.raw_tail.get(&0x00), Some(&(0xA0 + slot_idx as u8)));
+            assert_eq!(pcm.raw_tail.get(&0x01), Some(&(0xB0 + slot_idx as u8)));
         }
 
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
@@ -6421,63 +6520,69 @@ mod tests {
 
     #[test]
     fn pcm_string_level_and_line_route_round_trip() {
-        // Bytes 0x10..=0x15 = string_level[6], byte 0x16 = line_route,
-        // bytes 0x17..=0x18 = tail (still null/undocumented).
+        // Header page bytes 0x10..=0x15 = string_level[6], byte 0x16 =
+        // line_route. Bytes 0x17/0x18 of the header page are above
+        // line_route — they're not part of the documented header so
+        // they fall through to PatchArea::unknown_bytes.
         let payload: Vec<u8> = vec![
             80, 75, 70, 65, 60, 55,        // 0x10..=0x15 string_level
             LineRoute::Mfx.to_byte(),      // 0x16 line_route
-            0xE1, 0xE2,                    // 0x17, 0x18 — still raw_tail
+            0xE1, 0xE2,                    // 0x17/0x18 — fall through
         ];
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x20, 0x00, 0x10], // PCM-1-A offset 0x10
+            address: [TEMP_MSB, 0x20, 0x00, 0x10], // PCM Tone 1 header page
             data: Cow::Owned(payload),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
-        let pcm = area.pcm[0].as_ref().expect("slot 0 should populate");
+        let pcm = area.pcm[0].as_ref().expect("Tone 1 should populate");
         assert_eq!(pcm.string_level[0], Some(80));
         assert_eq!(pcm.string_level[5], Some(55));
         assert_eq!(pcm.line_route, Some(LineRoute::Mfx));
-        // raw_tail no longer holds 0x10..=0x16 (those are typed).
-        assert!(!pcm.raw_tail.contains_key(&0x10));
-        assert!(!pcm.raw_tail.contains_key(&0x16));
-        // It DOES hold the still-undocumented bytes at 0x17/0x18.
-        assert_eq!(pcm.raw_tail.get(&0x17), Some(&0xE1));
-        assert_eq!(pcm.raw_tail.get(&0x18), Some(&0xE2));
+        // raw_tail (the TAIL page) is empty — no bytes were sent there.
+        assert!(pcm.raw_tail.is_empty());
+        // The two unmapped header-page bytes ended up in
+        // PatchArea::unknown_bytes since the header doesn't claim them.
+        assert_eq!(area.unknown_bytes.get("20:00:17"), Some(&0xE1));
+        assert_eq!(area.unknown_bytes.get("20:00:18"), Some(&0xE2));
 
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
     }
 
     #[test]
-    fn pcm_tone_partial_decode_leaves_bytes_in_raw_tail() {
+    fn pcm_tone_partial_decode_parks_byte_for_round_trip() {
         // Only the bank byte arrives (no position). It should park in
-        // raw_tail and NOT promote to a typed synth_tone.
+        // `pending_bank` and NOT promote to a typed synth_tone.
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
             address: [TEMP_MSB, 0x20, 0x00, 0x01],
             data: Cow::Owned(vec![3]),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
-        let pcm = area.pcm[0].as_ref().expect("slot 0 should exist");
+        let pcm = area.pcm[0].as_ref().expect("Tone 1 should exist");
         assert!(pcm.synth_tone.is_none());
-        assert_eq!(pcm.raw_tail.get(&0x01), Some(&3));
+        assert_eq!(pcm.pending_bank, Some(3));
+        assert!(pcm.pending_pos.is_none());
 
-        // Round-trip: the partial byte must survive.
+        // Round-trip: the partial byte must survive (emitted from
+        // pending_bank since synth_tone is None).
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
     }
 
     #[test]
     fn pcm_slot_page_mapping_is_correct() {
-        assert_eq!(pcm_slot_for_page(0x20), Some(0));
-        assert_eq!(pcm_slot_for_page(0x21), Some(1));
-        assert_eq!(pcm_slot_for_page(0x30), Some(2));
-        assert_eq!(pcm_slot_for_page(0x31), Some(3));
-        assert_eq!(pcm_slot_for_page(0x22), None);
-        assert_eq!(pcm_slot_for_page(0x32), None);
-        assert_eq!(pcm_page_for_slot(0), 0x20);
-        assert_eq!(pcm_page_for_slot(3), 0x31);
+        // Each tone owns TWO pages: a header page (0x20/0x21) and a
+        // tail page (0x30/0x31).
+        assert_eq!(pcm_route_for_page(0x20), Some(PcmPageRole::Header(0)));
+        assert_eq!(pcm_route_for_page(0x21), Some(PcmPageRole::Header(1)));
+        assert_eq!(pcm_route_for_page(0x30), Some(PcmPageRole::Tail(0)));
+        assert_eq!(pcm_route_for_page(0x31), Some(PcmPageRole::Tail(1)));
+        assert_eq!(pcm_route_for_page(0x22), None);
+        assert_eq!(pcm_route_for_page(0x32), None);
+        assert_eq!(pcm_pages_for_slot(0), (0x20, 0x30));
+        assert_eq!(pcm_pages_for_slot(1), (0x21, 0x31));
     }
 
     #[test]
