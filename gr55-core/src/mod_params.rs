@@ -50,6 +50,24 @@ mod tests {
     }
 
     #[test]
+    fn enriched_metadata_covers_known_entries() {
+        // Distortion Drive at 0x19: range 0..=120, display 0..=120.
+        let dist_drive = &MOD_PARAMS[0x19];
+        assert_eq!(dist_drive.range, Some((0x00, 0x78)));
+        assert_eq!(dist_drive.display_range, Some((0, 120)));
+        assert!(dist_drive.values.is_empty());
+
+        // Distortion Tone at 0x1A: range 0..=100, display -50..=+50.
+        let dist_tone = &MOD_PARAMS[0x1A];
+        assert_eq!(dist_tone.display_range, Some((-50, 50)));
+
+        // MOD type byte at 0x16: 14 named effect types.
+        let mod_type = &MOD_PARAMS[0x16];
+        assert_eq!(mod_type.values.len(), 14);
+        assert_eq!(mod_type.values[0], (0x00, "Distortion"));
+    }
+
+    #[test]
     fn spot_check_known_type_owners() {
         // MOD type byte at 0x16 is common (no owning type — it's the
         // selector itself).

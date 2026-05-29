@@ -86,6 +86,20 @@ mod tests {
     }
 
     #[test]
+    fn enriched_metadata_covers_known_entries() {
+        // Tone Level at 0x09: range 0..=100, display 0..=100.
+        let tone_level = &MODELING_PARAMS[0x09];
+        assert_eq!(tone_level.range, Some((0x00, 0x64)));
+        assert_eq!(tone_level.display_range, Some((0, 100)));
+
+        // Guitar Mode Category at 0x00: 4 named instrument categories.
+        let cat = &MODELING_PARAMS[0x00];
+        assert!(cat.values.len() >= 4);
+        assert_eq!(cat.values[0], (0x00, "Electric Guitar"));
+        assert_eq!(cat.values[3], (0x03, "Synth"));
+    }
+
+    #[test]
     fn spot_check_known_owners() {
         // Common header — Modeling Tone Sw at page 0x10 offset 0x0A.
         let tone_sw = &MODELING_PARAMS[0x0A];

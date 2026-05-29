@@ -63,6 +63,28 @@ mod tests {
     }
 
     #[test]
+    fn enriched_metadata_covers_known_entries() {
+        // Equalizer Low Gain at 0x08: range 0..=0x1E, display -15..=+15 dB.
+        let eq_low_gain = &MFX_PARAMS[0x08];
+        assert!(eq_low_gain.values.is_empty());
+        assert_eq!(eq_low_gain.range, Some((0x00, 0x1E)));
+        assert_eq!(eq_low_gain.display_range, Some((-15, 15)));
+
+        // Equalizer Mid 1 Freq at 0x09: 17 named freq variants, no range.
+        let eq_mid1 = &MFX_PARAMS[0x09];
+        assert_eq!(eq_mid1.values.len(), 17);
+        assert_eq!(eq_mid1.values[0], (0x00, "200Hz"));
+        assert_eq!(eq_mid1.values[16], (0x10, "8.0k"));
+        assert!(eq_mid1.range.is_none());
+
+        // MFX Type byte at 0x05: 20 named effect types (the type selector).
+        let mfx_type = &MFX_PARAMS[0x05];
+        assert_eq!(mfx_type.values.len(), 20);
+        assert_eq!(mfx_type.values[0], (0x00, "Equalizer"));
+        assert_eq!(mfx_type.values[19], (0x13, "Pitch Shifter"));
+    }
+
+    #[test]
     fn spot_check_known_type_owners() {
         // page 0x03 offset 0x05 = MFX Type byte (common, no owning type).
         let type_byte = &MFX_PARAMS[0x05];

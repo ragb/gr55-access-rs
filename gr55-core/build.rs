@@ -458,6 +458,86 @@ fn emit_pcm_tone_catalog(doc: &Document) -> String {
     out
 }
 
+/// Per-parameter metadata extracted from a `<DATA>` element's `<PARAM>`
+/// children. Returned by [`extract_param_meta`].
+#[derive(Debug, Clone, Default)]
+struct ParamMeta {
+    /// Named single-byte values, e.g. `(0x00, "Off")`, `(0x01, "On")`.
+    values: Vec<(u8, String)>,
+    /// Raw wire-byte range as `(min, max)`. `None` when the param is
+    /// purely enumerated.
+    range: Option<(u8, u8)>,
+    /// Display range as `(min, max)` (e.g. `(-15, 15)` for "Low Gain"
+    /// whose wire bytes are `0..=30`). Signed since many params display
+    /// negative values.
+    display_range: Option<(i32, i32)>,
+}
+
+/// Emit `ParamMeta` fields (`values`, `range`, `display_range`) as
+/// Rust literals suitable for inclusion in a generated struct
+/// initialiser. Returns the three formatted snippets in that order so
+/// they can be threaded into the caller's `writeln!`.
+fn format_param_meta(meta: &ParamMeta) -> (String, String, String) {
+    let values = if meta.values.is_empty() {
+        "&[]".to_string()
+    } else {
+        let mut s = String::from("&[");
+        for (i, (byte, name)) in meta.values.iter().enumerate() {
+            if i > 0 {
+                s.push_str(", ");
+            }
+            s.push_str(&format!("(0x{byte:02X}, {})", rust_str(name)));
+        }
+        s.push(']');
+        s
+    };
+    let range = match meta.range {
+        Some((min, max)) => format!("Some((0x{min:02X}, 0x{max:02X}))"),
+        None => "None".to_string(),
+    };
+    let display_range = match meta.display_range {
+        Some((min, max)) => format!("Some(({min}, {max}))"),
+        None => "None".to_string(),
+    };
+    (values, range, display_range)
+}
+
+/// Walk a `<DATA>` element's `<PARAM>` children and extract:
+///
+/// - Every `<PARAM value="HH" name="..."/>` entry as a named byte value.
+/// - The single `<PARAM value="range" name="MIN/MAX/DISP_MIN/DISP_MAX"/>`
+///   entry as a `(range, display_range)` pair, if present. Values are
+///   parsed as hex for the wire bytes and signed-decimal (with optional
+///   leading `+`) for the display half.
+fn extract_param_meta(data: Node) -> ParamMeta {
+    let mut meta = ParamMeta::default();
+    for param in data
+        .children()
+        .filter(|c| c.is_element() && c.has_tag_name("PARAM"))
+    {
+        let value = param.attribute("value").unwrap_or("").trim();
+        let name = param.attribute("name").unwrap_or("");
+        if value.eq_ignore_ascii_case("range") {
+            let parts: Vec<&str> = name.split('/').map(str::trim).collect();
+            if parts.len() == 4 {
+                let min_b = u8::from_str_radix(parts[0], 16).ok();
+                let max_b = u8::from_str_radix(parts[1], 16).ok();
+                let disp_min = parts[2].trim_start_matches('+').parse::<i32>().ok();
+                let disp_max = parts[3].trim_start_matches('+').parse::<i32>().ok();
+                if let (Some(min), Some(max)) = (min_b, max_b) {
+                    meta.range = Some((min, max));
+                }
+                if let (Some(min), Some(max)) = (disp_min, disp_max) {
+                    meta.display_range = Some((min, max));
+                }
+            }
+        } else if let Ok(byte) = u8::from_str_radix(value, 16) {
+            meta.values.push((byte, name.trim().to_string()));
+        }
+    }
+    meta
+}
+
 /// The 20 effect types FloorBoard `midi.xml` declares for MFX at page
 /// `0x03` offset `0x05`. Order matches the wire byte. Each entry pairs
 /// the canonical short name (used by FloorBoard's `desc` attribute on
@@ -522,11 +602,13 @@ fn emit_mfx_param_table(doc: &Document) -> String {
             let customdesc = data.attribute("customdesc").unwrap_or("").trim();
             let owning_type = mfx_type_for_desc(desc);
             let name = mfx_param_name(desc, customdesc);
+            let meta = extract_param_meta(data);
             let row = MfxParamRow {
                 page: page_byte,
                 offset,
                 owning_type,
                 name: name.to_string(),
+                meta,
             };
             // Disjoint check — fires loudly if any (page, offset) already has
             // a type-specific owner and the new entry is also type-specific.
@@ -600,6 +682,32 @@ fn emit_mfx_param_table(doc: &Document) -> String {
     )
     .unwrap();
     writeln!(out, "    pub name: &'static str,").unwrap();
+    writeln!(
+        out,
+        "    /// Named byte values for this param. Empty for purely numeric"
+    )
+    .unwrap();
+    writeln!(out, "    /// (range-only) parameters.").unwrap();
+    writeln!(out, "    pub values: &'static [(u8, &'static str)],").unwrap();
+    writeln!(
+        out,
+        "    /// Raw wire-byte range (min, max). None for purely enumerated"
+    )
+    .unwrap();
+    writeln!(out, "    /// parameters.").unwrap();
+    writeln!(out, "    pub range: Option<(u8, u8)>,").unwrap();
+    writeln!(
+        out,
+        "    /// Display range (min, max) for numeric parameters whose"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    /// display values differ from their wire bytes (e.g. -15..=+15"
+    )
+    .unwrap();
+    writeln!(out, "    /// dB across wire 0x00..=0x1E).").unwrap();
+    writeln!(out, "    pub display_range: Option<(i32, i32)>,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
     writeln!(
@@ -624,9 +732,10 @@ fn emit_mfx_param_table(doc: &Document) -> String {
             Some(ref ident) => format!("Some(MfxTypeOwner::{ident})"),
             None => "None".to_string(),
         };
+        let (values, range, display_range) = format_param_meta(&row.meta);
         writeln!(
             out,
-            "    MfxParamEntry {{ page: 0x{:02X}, offset: 0x{:02X}, owning_type: {owner}, name: {} }},",
+            "    MfxParamEntry {{ page: 0x{:02X}, offset: 0x{:02X}, owning_type: {owner}, name: {}, values: {values}, range: {range}, display_range: {display_range} }},",
             row.page,
             row.offset,
             rust_str(&row.name),
@@ -710,6 +819,7 @@ fn emit_mod_param_table(doc: &Document) -> String {
             offset: i as u8,
             owning_type: None,
             name: String::new(),
+            meta: ParamMeta::default(),
         })
         .collect();
     for data in inner
@@ -726,11 +836,13 @@ fn emit_mod_param_table(doc: &Document) -> String {
         let customdesc = data.attribute("customdesc").unwrap_or("").trim();
         let owning_type = mod_type_for_desc(raw_desc);
         let name = mfx_param_name(raw_desc.trim(), customdesc);
+        let meta = extract_param_meta(data);
         let row = TypedParamRow {
             page: 0x07,
             offset,
             owning_type,
             name,
+            meta,
         };
         let prior = &entries[offset as usize];
         if prior.owning_type.is_some() && row.owning_type.is_some() {
@@ -828,6 +940,7 @@ fn emit_modeling_param_table(doc: &Document) -> String {
                     prior.abbr, prior.desc, abbr, desc
                 );
             }
+            let meta = extract_param_meta(data);
             entries[linear] = ModelingParamRow {
                 page: page_byte,
                 offset,
@@ -835,6 +948,7 @@ fn emit_modeling_param_table(doc: &Document) -> String {
                 desc,
                 customdesc,
                 populated: true,
+                meta,
             };
         }
     }
@@ -953,6 +1067,20 @@ fn emit_modeling_param_table(doc: &Document) -> String {
     writeln!(out, "    /// of the category.").unwrap();
     writeln!(out, "    pub types: &'static str,").unwrap();
     writeln!(out, "    pub name: &'static str,").unwrap();
+    writeln!(
+        out,
+        "    /// Named byte values (empty for purely-numeric params)."
+    )
+    .unwrap();
+    writeln!(out, "    pub values: &'static [(u8, &'static str)],").unwrap();
+    writeln!(out, "    /// Raw wire-byte range (min, max).").unwrap();
+    writeln!(out, "    pub range: Option<(u8, u8)>,").unwrap();
+    writeln!(
+        out,
+        "    /// Display range (min, max) when it differs from the wire range."
+    )
+    .unwrap();
+    writeln!(out, "    pub display_range: Option<(i32, i32)>,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
     writeln!(out, "pub const MODELING_BLOCK_SIZE: usize = 256;").unwrap();
@@ -970,10 +1098,12 @@ fn emit_modeling_param_table(doc: &Document) -> String {
         } else {
             "ModelingMode::Bass"
         };
+        let (values, range, display_range) = format_param_meta(&row.meta);
         writeln!(
             out,
             "    ModelingParamEntry {{ page: 0x{:02X}, offset: 0x{:02X}, mode: {mode}, \
-             category: {}, types: {}, name: {} }},",
+             category: {}, types: {}, name: {}, values: {values}, range: {range}, \
+             display_range: {display_range} }},",
             row.page,
             row.offset,
             rust_str(&row.abbr),
@@ -1041,6 +1171,7 @@ struct ModelingParamRow {
     desc: String,
     customdesc: String,
     populated: bool,
+    meta: ParamMeta,
 }
 
 impl ModelingParamRow {
@@ -1052,6 +1183,7 @@ impl ModelingParamRow {
             desc: String::new(),
             customdesc: String::new(),
             populated: false,
+            meta: ParamMeta::default(),
         }
     }
 }
@@ -1100,6 +1232,24 @@ fn emit_table_module(
     writeln!(out, "    pub offset: u8,").unwrap();
     writeln!(out, "    pub owning_type: Option<{enum_name}>,").unwrap();
     writeln!(out, "    pub name: &'static str,").unwrap();
+    writeln!(
+        out,
+        "    /// Named byte values (empty for purely-numeric params)."
+    )
+    .unwrap();
+    writeln!(out, "    pub values: &'static [(u8, &'static str)],").unwrap();
+    writeln!(
+        out,
+        "    /// Raw wire-byte range (min, max). None when purely enumerated."
+    )
+    .unwrap();
+    writeln!(out, "    pub range: Option<(u8, u8)>,").unwrap();
+    writeln!(
+        out,
+        "    /// Display range (min, max) when it differs from the wire range."
+    )
+    .unwrap();
+    writeln!(out, "    pub display_range: Option<(i32, i32)>,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
     writeln!(out, "pub const {size_const}: usize = {block_size};").unwrap();
@@ -1114,9 +1264,10 @@ fn emit_table_module(
             Some(ident) => format!("Some({enum_name}::{ident})"),
             None => "None".to_string(),
         };
+        let (values, range, display_range) = format_param_meta(&row.meta);
         writeln!(
             out,
-            "    ParamEntry {{ page: 0x{:02X}, offset: 0x{:02X}, owning_type: {owner}, name: {} }},",
+            "    ParamEntry {{ page: 0x{:02X}, offset: 0x{:02X}, owning_type: {owner}, name: {}, values: {values}, range: {range}, display_range: {display_range} }},",
             row.page,
             row.offset,
             rust_str(&row.name),
@@ -1156,6 +1307,7 @@ struct TypedParamRow {
     offset: u8,
     owning_type: Option<&'static str>,
     name: String,
+    meta: ParamMeta,
 }
 
 #[derive(Debug, Clone)]
@@ -1164,6 +1316,7 @@ struct MfxParamRow {
     offset: u8,
     owning_type: Option<&'static str>,
     name: String,
+    meta: ParamMeta,
 }
 
 impl MfxParamRow {
@@ -1173,6 +1326,7 @@ impl MfxParamRow {
             offset: 0,
             owning_type: None,
             name: String::new(),
+            meta: ParamMeta::default(),
         }
     }
 }
