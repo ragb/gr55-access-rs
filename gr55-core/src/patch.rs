@@ -1787,10 +1787,21 @@ pub struct Pcm {
     /// TVA release mode at `0x0F` (Mode 1 / Mode 2).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tva_release_mode: Option<TvaReleaseMode>,
+    /// Per-string PCM level at `0x10..=0x15` (strings 1..=6 = String 1 [H]
+    /// through String 6 [L], raw 0..=100). FloorBoard `midi.xml` documents
+    /// these as `desc="String level"`.
+    #[serde(default, skip_serializing_if = "string_shift_all_none")]
+    pub string_level: [Option<u8>; 6],
+    /// PCM line route at `0x16` (`ByPass` / `Amp/MOD` / `MFX`). Reuses
+    /// the [`LineRoute`] enum.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_route: Option<LineRoute>,
 
-    /// Everything at offsets `0x10..=0x7F` — the type-dependent
-    /// envelope / filter / LFO / per-string parameter block. Keyed by
-    /// offset within the PCM page.
+    /// Everything at offsets `0x17..=0x7F` — the tone-type-dependent
+    /// envelope / filter / LFO / per-string parameter block. FloorBoard
+    /// `midi.xml` tags all of these bytes as `customdesc="null"` with no
+    /// further documentation; they're preserved verbatim for round-trip.
+    /// Keyed by offset within the PCM page.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub raw_tail: BTreeMap<u8, u8>,
 }
@@ -1880,7 +1891,18 @@ impl Pcm {
                 }
                 None => false,
             },
-            0x10..=0x7F => {
+            0x10..=0x15 if b <= 100 => {
+                self.string_level[(off - 0x10) as usize] = Some(b);
+                true
+            }
+            0x16 => match LineRoute::from_byte(b) {
+                Some(v) => {
+                    self.line_route = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x17..=0x7F => {
                 self.raw_tail.insert(off, b);
                 true
             }
@@ -1934,6 +1956,10 @@ impl Pcm {
         put!(0x0D, self.portamento_time);
         put!(0x0E, self.portamento_raw_0e);
         put!(0x0F, self.tva_release_mode.map(TvaReleaseMode::to_byte));
+        for (i, v) in self.string_level.iter().enumerate() {
+            put!(0x10 + i as u8, *v);
+        }
+        put!(0x16, self.line_route.map(LineRoute::to_byte));
         for (off, b) in &self.raw_tail {
             bytes.insert([base_msb, page, 0x00, *off], *b);
         }
@@ -6229,8 +6255,8 @@ mod tests {
                 5,                                 // 0x0D portamento_time
                 8,                                 // 0x0E portamento_raw_0e
                 TvaReleaseMode::Mode2.to_byte(),   // 0x0F
-                0xD1,                              // 0x10 raw_tail
-                0xD2,                              // 0x11 raw_tail
+                90,                                // 0x10 string_level[0]
+                85,                                // 0x11 string_level[1]
             ];
             frames.push(Frame::Dt1 {
                 device_id: 0x10,
@@ -6262,8 +6288,10 @@ mod tests {
             // anymore because finalize lifted them out.
             assert!(!pcm.raw_tail.contains_key(&0x01));
             assert!(!pcm.raw_tail.contains_key(&0x02));
-            assert_eq!(pcm.raw_tail.get(&0x10), Some(&0xD1));
-            assert_eq!(pcm.raw_tail.get(&0x11), Some(&0xD2));
+            // 0x10 / 0x11 are now string_level[0] / string_level[1]
+            // (typed), not raw_tail.
+            assert_eq!(pcm.string_level[0], Some(90));
+            assert_eq!(pcm.string_level[1], Some(85));
         }
 
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
@@ -6317,6 +6345,36 @@ mod tests {
 
         // The const table size matches what we promise.
         assert_eq!(crate::pcm_tones::PCM_TONE_COUNT, 910);
+    }
+
+    #[test]
+    fn pcm_string_level_and_line_route_round_trip() {
+        // Bytes 0x10..=0x15 = string_level[6], byte 0x16 = line_route,
+        // bytes 0x17..=0x18 = tail (still null/undocumented).
+        let payload: Vec<u8> = vec![
+            80, 75, 70, 65, 60, 55,        // 0x10..=0x15 string_level
+            LineRoute::Mfx.to_byte(),      // 0x16 line_route
+            0xE1, 0xE2,                    // 0x17, 0x18 — still raw_tail
+        ];
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x20, 0x00, 0x10], // PCM-1-A offset 0x10
+            data: Cow::Owned(payload),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+        let pcm = area.pcm[0].as_ref().expect("slot 0 should populate");
+        assert_eq!(pcm.string_level[0], Some(80));
+        assert_eq!(pcm.string_level[5], Some(55));
+        assert_eq!(pcm.line_route, Some(LineRoute::Mfx));
+        // raw_tail no longer holds 0x10..=0x16 (those are typed).
+        assert!(!pcm.raw_tail.contains_key(&0x10));
+        assert!(!pcm.raw_tail.contains_key(&0x16));
+        // It DOES hold the still-undocumented bytes at 0x17/0x18.
+        assert_eq!(pcm.raw_tail.get(&0x17), Some(&0xE1));
+        assert_eq!(pcm.raw_tail.get(&0x18), Some(&0xE2));
+
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
     }
 
     #[test]
