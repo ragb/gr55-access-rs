@@ -633,13 +633,13 @@ impl MasterTuneHz {
 /// 4-nibble (BCD-like) scheme FloorBoard's `customDataKnob.cpp:106-128`
 /// applies whenever the UI control type is `addDataKnob`:
 /// `byte_hi = (value >> 4) & 0x0F`, `byte_lo = value & 0x0F`.
-fn encode_nibble_pair(value: u8) -> [u8; 2] {
+pub(crate) fn encode_nibble_pair(value: u8) -> [u8; 2] {
     [(value >> 4) & 0x0F, value & 0x0F]
 }
 
 /// Inverse of [`encode_nibble_pair`]. Returns `None` when either byte has
 /// any of bits 4–7 set (which means it isn't a valid nibble half).
-fn decode_nibble_pair(hi: u8, lo: u8) -> Option<u8> {
+pub(crate) fn decode_nibble_pair(hi: u8, lo: u8) -> Option<u8> {
     if hi > 0x0F || lo > 0x0F {
         return None;
     }
@@ -1017,14 +1017,14 @@ impl PatchLevel {
     pub fn get(self) -> u8 {
         self.0
     }
-    fn from_two_bytes(hi: u8, lo: u8) -> Option<Self> {
+    pub(crate) fn from_two_bytes(hi: u8, lo: u8) -> Option<Self> {
         let v = decode_nibble_pair(hi, lo)?;
         if v > 200 {
             return None;
         }
         Some(PatchLevel(v))
     }
-    fn to_two_bytes(self) -> [u8; 2] {
+    pub(crate) fn to_two_bytes(self) -> [u8; 2] {
         encode_nibble_pair(self.0)
     }
 }

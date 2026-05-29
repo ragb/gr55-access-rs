@@ -45,7 +45,9 @@ use thiserror::Error;
 
 use crate::codec::CodecError;
 use crate::sysex::Frame;
-use crate::system::{HoldType, OnOff, PitchBendDepth, SwitchMode};
+use crate::system::{
+    decode_nibble_pair, encode_nibble_pair, HoldType, OnOff, PatchLevel, PitchBendDepth, SwitchMode,
+};
 
 /// 16-char patch name (ASCII 0x20..=0x7D, the printable subset FloorBoard
 /// allows). Stored as raw bytes so that round-trip preserves any byte the
@@ -587,6 +589,294 @@ impl AssignWaveForm {
     }
 }
 
+/// GK Set selector at page `0x02` offset `0x24`. 11 variants: System
+/// (= follow the global system-area setting) plus the 10 per-patch
+/// overrides. Mined from FloorBoard `midi.xml:39880-39895`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatchGkSet {
+    System,
+    User1,
+    User2,
+    User3,
+    User4,
+    User5,
+    User6,
+    User7,
+    User8,
+    User9,
+    User10,
+}
+
+impl PatchGkSet {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use PatchGkSet::*;
+        Some(match b {
+            0x00 => System,
+            0x01 => User1,
+            0x02 => User2,
+            0x03 => User3,
+            0x04 => User4,
+            0x05 => User5,
+            0x06 => User6,
+            0x07 => User7,
+            0x08 => User8,
+            0x09 => User9,
+            0x0A => User10,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use PatchGkSet::*;
+        match self {
+            System => 0x00,
+            User1 => 0x01,
+            User2 => 0x02,
+            User3 => 0x03,
+            User4 => 0x04,
+            User5 => 0x05,
+            User6 => 0x06,
+            User7 => 0x07,
+            User8 => 0x08,
+            User9 => 0x09,
+            User10 => 0x0A,
+        }
+    }
+}
+
+/// Guitar Out routing at page `0x02` offset `0x25`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GuitarOut {
+    Off,
+    NormalPu,
+    Modeling,
+    Both,
+}
+
+impl GuitarOut {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Off),
+            0x01 => Some(Self::NormalPu),
+            0x02 => Some(Self::Modeling),
+            0x03 => Some(Self::Both),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::Off => 0x00,
+            Self::NormalPu => 0x01,
+            Self::Modeling => 0x02,
+            Self::Both => 0x03,
+        }
+    }
+}
+
+/// V-LINK control target (EXP, EXP ON, GK VOL fields at page `0x02`
+/// offsets `0x29..=0x2B`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VLinkControl {
+    Off,
+    ColorCb,
+    ColorCr,
+    Bright,
+    PlaySpeed,
+}
+
+impl VLinkControl {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Off),
+            0x01 => Some(Self::ColorCb),
+            0x02 => Some(Self::ColorCr),
+            0x03 => Some(Self::Bright),
+            0x04 => Some(Self::PlaySpeed),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::Off => 0x00,
+            Self::ColorCb => 0x01,
+            Self::ColorCr => 0x02,
+            Self::Bright => 0x03,
+            Self::PlaySpeed => 0x04,
+        }
+    }
+}
+
+/// Patch structure selector at page `0x02` offset `0x2C`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatchStructure {
+    Structure1,
+    Structure2,
+}
+
+impl PatchStructure {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Structure1),
+            0x01 => Some(Self::Structure2),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::Structure1 => 0x00,
+            Self::Structure2 => 0x01,
+        }
+    }
+}
+
+/// Per-mode line route at page `0x02` offsets `0x2D` (Modeling) and `0x2E`
+/// (AnalogPU). Three positions: `ByPass`, `Amp/MOD`, `MFX`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LineRoute {
+    ByPass,
+    AmpMod,
+    Mfx,
+}
+
+impl LineRoute {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::ByPass),
+            0x01 => Some(Self::AmpMod),
+            0x02 => Some(Self::Mfx),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::ByPass => 0x00,
+            Self::AmpMod => 0x01,
+            Self::Mfx => 0x02,
+        }
+    }
+}
+
+/// Analog PU "Tone Sw" at page `0x02` offset `0x32`. **WIRE-REVERSED**
+/// — FloorBoard `midi.xml` lists value 0x00 as `On` and 0x01 as `Off`,
+/// the opposite of the standard [`OnOff`] enum. We model it as a
+/// distinct type to keep that wire reversal explicit at every site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AnalogPuToneSw {
+    On,
+    Off,
+}
+
+impl AnalogPuToneSw {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::On),
+            0x01 => Some(Self::Off),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::On => 0x00,
+            Self::Off => 0x01,
+        }
+    }
+}
+
+/// Alt Tuning preset at page `0x02` offset `0x35`. 13 variants.
+///
+/// **NOTE:** FloorBoard `midi.xml` has a data bug here — entries for
+/// `-1 Octave`, `+1 Octave`, and `User` all collide at `value="0A"`.
+/// We assume the intended sequential mapping (`0x0A`, `0x0B`, `0x0C`)
+/// since the device has 13 distinct alt-tuning presets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AltTuningType {
+    OpenD,
+    OpenE,
+    OpenG,
+    OpenA,
+    DropD,
+    DModal,
+    MinusOneStep,
+    MinusTwoStep,
+    Baritone,
+    Nashville,
+    MinusOneOctave,
+    PlusOneOctave,
+    User,
+}
+
+impl AltTuningType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use AltTuningType::*;
+        Some(match b {
+            0x00 => OpenD,
+            0x01 => OpenE,
+            0x02 => OpenG,
+            0x03 => OpenA,
+            0x04 => DropD,
+            0x05 => DModal,
+            0x06 => MinusOneStep,
+            0x07 => MinusTwoStep,
+            0x08 => Baritone,
+            0x09 => Nashville,
+            0x0A => MinusOneOctave,
+            0x0B => PlusOneOctave,
+            0x0C => User,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use AltTuningType::*;
+        match self {
+            OpenD => 0x00,
+            OpenE => 0x01,
+            OpenG => 0x02,
+            OpenA => 0x03,
+            DropD => 0x04,
+            DModal => 0x05,
+            MinusOneStep => 0x06,
+            MinusTwoStep => 0x07,
+            Baritone => 0x08,
+            Nashville => 0x09,
+            MinusOneOctave => 0x0A,
+            PlusOneOctave => 0x0B,
+            User => 0x0C,
+        }
+    }
+}
+
+/// Per-patch tempo. Wire encoding is 4-nibble (same as
+/// `crate::system::MasterBpm` and the System-area `PatchLevel`):
+/// the high nibble lives at page `0x02` offset `0x3C` and the low
+/// nibble at `0x3D`. Roland devices typically support 40..=250 BPM
+/// for patch tempo; the type accepts the full `0..=255` the 4-nibble
+/// encoding can carry and leaves device-specific clamping to the
+/// hardware.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PatchTempo(pub u8);
+
+impl PatchTempo {
+    pub fn new(value: u8) -> Self {
+        PatchTempo(value)
+    }
+    pub fn raw(self) -> u8 {
+        self.0
+    }
+    fn from_two_bytes(hi: u8, lo: u8) -> Option<Self> {
+        decode_nibble_pair(hi, lo).map(PatchTempo)
+    }
+    fn to_two_bytes(self) -> [u8; 2] {
+        encode_nibble_pair(self.0)
+    }
+}
+
 /// One Master Assign slot. The GR-55 has 8 of these (`PatchArea::master_assigns`).
 ///
 /// Each slot is a 19-byte block that binds an external source (pedal /
@@ -791,6 +1081,10 @@ impl Assign {
 }
 
 fn all_assigns_none(arr: &[Option<Assign>; 8]) -> bool {
+    arr.iter().all(Option::is_none)
+}
+
+fn string_shift_all_none(arr: &[Option<u8>; 6]) -> bool {
     arr.iter().all(Option::is_none)
 }
 
@@ -1153,11 +1447,100 @@ pub struct PatchArea {
 
     /// The 8 Master Assigns. Assigns 1-6 live entirely on page `0x01`
     /// (each is 19 bytes; Assign1 starts at `0x01:00:0C`, Assign2 at
-    /// `0x01:00:1F`, ..., Assign6 at `0x01:00:6B`). Assigns 7 and 8 are
-    /// added in a follow-up commit (they span the `0x01 → 0x02` page
-    /// boundary).
+    /// `0x01:00:1F`, ..., Assign6 at `0x01:00:6B`). Assigns 7 and 8 span
+    /// the `0x01 → 0x02` page boundary via [`assign_address`].
     #[serde(default, skip_serializing_if = "all_assigns_none")]
     pub master_assigns: [Option<Assign>; 8],
+
+    // ---- Page 0x02 tail (offsets 0x24..=0x47): per-patch metadata ----
+    /// GK Set selector at `0x02:00:24`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_set: Option<PatchGkSet>,
+    /// Guitar Out routing at `0x02:00:25`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guitar_out: Option<GuitarOut>,
+    /// V-Link Pallet selector at `0x02:00:26` (0 = LAST, 1..=32).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_link_pallet: Option<u8>,
+    /// V-Link Clip selector at `0x02:00:27` (0 = LAST, 1..=32).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_link_clip: Option<u8>,
+    /// V-Link Note Clip Change at `0x02:00:28` (0 = OFF, 1..=4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_link_note_clip_change: Option<u8>,
+    /// V-Link EXP control target at `0x02:00:29`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_link_exp: Option<VLinkControl>,
+    /// V-Link EXP ON control target at `0x02:00:2A`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_link_exp_on: Option<VLinkControl>,
+    /// V-Link GK VOL control target at `0x02:00:2B`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_link_gk_vol: Option<VLinkControl>,
+    /// Patch structure selector at `0x02:00:2C`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub structure: Option<PatchStructure>,
+    /// Modeling line route at `0x02:00:2D`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modeling_line_route: Option<LineRoute>,
+    /// AnalogPU line route at `0x02:00:2E`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub analog_pu_line_route: Option<LineRoute>,
+    /// Patch Level at `0x02:00:30/31` (4-nibble, 0..=200).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_level: Option<PatchLevel>,
+    /// AnalogPU Tone Sw at `0x02:00:32` (wire-reversed enum — see
+    /// [`AnalogPuToneSw`] docs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub analog_pu_tone_sw: Option<AnalogPuToneSw>,
+    /// AnalogPU Tone Level at `0x02:00:33` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub analog_pu_tone_level: Option<u8>,
+    /// Alt Tuning Switch at `0x02:00:34`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alt_tuning_sw: Option<OnOff>,
+    /// Alt Tuning Type at `0x02:00:35`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alt_tuning_type: Option<AltTuningType>,
+    /// Alt Tuning user shift per string at `0x02:00:36..=3B` (strings
+    /// 1..=6 = string 1 (H) through string 6 (L)). Wire encoding maps
+    /// `0x28..=0x58` to display values `-24..=+24` semitones; stored
+    /// raw to mirror the System area's `user_tuning_shift_strings`.
+    #[serde(default, skip_serializing_if = "string_shift_all_none")]
+    pub alt_tuning_user_shift: [Option<u8>; 6],
+    /// Patch Tempo at `0x02:00:3C/3D` (4-nibble).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_tempo: Option<PatchTempo>,
+    /// Chorus bypass level at `0x02:00:3E` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bypass_chorus: Option<u8>,
+    /// Delay bypass level at `0x02:00:3F`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bypass_delay: Option<u8>,
+    /// Reverb bypass level at `0x02:00:40`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bypass_reverb: Option<u8>,
+    /// EXP Pedal Modulation MIN at `0x02:00:42` (per-patch duplicate of
+    /// the page-0 `exp_mod_min`; reserved for the modulation envelope
+    /// the device applies independently of the patch's per-output Mod
+    /// PCM1/PCM2 routings). Raw 0..=127.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_mod_min_envelope: Option<u8>,
+    /// EXP Pedal Modulation MAX at `0x02:00:43`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_mod_max_envelope: Option<u8>,
+    /// EXP Pedal ON Modulation MIN at `0x02:00:44`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_mod_min_envelope: Option<u8>,
+    /// EXP Pedal ON Modulation MAX at `0x02:00:45`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp_on_mod_max_envelope: Option<u8>,
+    /// GK Volume Modulation MIN at `0x02:00:46`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_mod_min_envelope: Option<u8>,
+    /// GK Volume Modulation MAX at `0x02:00:47`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gk_vol_mod_max_envelope: Option<u8>,
 
     /// Everything inside the patch payload that the typed model doesn't yet
     /// cover. Keys are formatted `"PP:HH:LL"` — page byte, then the two
@@ -1197,7 +1580,47 @@ impl PatchArea {
                 }
             }
         }
+        // Post-process 4-nibble pairs (PatchLevel + PatchTempo). These can
+        // only be combined once both bytes are seen, so they're parked in
+        // `unknown_bytes` during the byte-by-byte pass and lifted out here.
+        area.lift_nibble_pair(
+            "02:00:30",
+            "02:00:31",
+            PatchLevel::from_two_bytes,
+            |area, v| area.patch_level = Some(v),
+        );
+        area.lift_nibble_pair(
+            "02:00:3C",
+            "02:00:3D",
+            PatchTempo::from_two_bytes,
+            |area, v| area.patch_tempo = Some(v),
+        );
         area
+    }
+
+    /// If both `hi_key` and `lo_key` are present in `unknown_bytes` and
+    /// `decode(hi, lo)` succeeds, remove them and apply the result via
+    /// `apply`. Used to lift 4-nibble pairs into their typed fields after
+    /// the byte-by-byte decoder finishes.
+    fn lift_nibble_pair<T>(
+        &mut self,
+        hi_key: &str,
+        lo_key: &str,
+        decode: impl FnOnce(u8, u8) -> Option<T>,
+        apply: impl FnOnce(&mut Self, T),
+    ) {
+        let Some(&hi) = self.unknown_bytes.get(hi_key) else {
+            return;
+        };
+        let Some(&lo) = self.unknown_bytes.get(lo_key) else {
+            return;
+        };
+        let Some(value) = decode(hi, lo) else {
+            return;
+        };
+        self.unknown_bytes.remove(hi_key);
+        self.unknown_bytes.remove(lo_key);
+        apply(self, value);
     }
 
     /// Encode this `PatchArea` into DT1 frames at the given MSB. One frame
@@ -1347,6 +1770,39 @@ impl PatchArea {
                     self.unknown_bytes.insert(format_key(page, hi, lo), b);
                 }
             }
+            // Page 0x02 tail (per-patch metadata at 0x24..=0x47).
+            (0x02, 0x00, 0x24) => self.gk_set = PatchGkSet::from_byte(b),
+            (0x02, 0x00, 0x25) => self.guitar_out = GuitarOut::from_byte(b),
+            (0x02, 0x00, 0x26) if b <= 32 => self.v_link_pallet = Some(b),
+            (0x02, 0x00, 0x27) if b <= 32 => self.v_link_clip = Some(b),
+            (0x02, 0x00, 0x28) if b <= 4 => self.v_link_note_clip_change = Some(b),
+            (0x02, 0x00, 0x29) => self.v_link_exp = VLinkControl::from_byte(b),
+            (0x02, 0x00, 0x2A) => self.v_link_exp_on = VLinkControl::from_byte(b),
+            (0x02, 0x00, 0x2B) => self.v_link_gk_vol = VLinkControl::from_byte(b),
+            (0x02, 0x00, 0x2C) => self.structure = PatchStructure::from_byte(b),
+            (0x02, 0x00, 0x2D) => self.modeling_line_route = LineRoute::from_byte(b),
+            (0x02, 0x00, 0x2E) => self.analog_pu_line_route = LineRoute::from_byte(b),
+            // 0x2F is FloorBoard-undocumented (no customdesc, range 0..=255)
+            // — fall through to unknown_bytes.
+            // 0x30/0x31 are decoded after the loop in `from_frames_at` since
+            // they require both bytes present together.
+            (0x02, 0x00, 0x32) => self.analog_pu_tone_sw = AnalogPuToneSw::from_byte(b),
+            (0x02, 0x00, 0x33) if b <= 100 => self.analog_pu_tone_level = Some(b),
+            (0x02, 0x00, 0x34) => self.alt_tuning_sw = OnOff::from_byte(b),
+            (0x02, 0x00, 0x35) => self.alt_tuning_type = AltTuningType::from_byte(b),
+            (0x02, 0x00, lo @ 0x36..=0x3B) if (0x28..=0x58).contains(&b) => {
+                self.alt_tuning_user_shift[(lo - 0x36) as usize] = Some(b);
+            }
+            // 0x3C/0x3D decoded as PatchTempo after the loop.
+            (0x02, 0x00, 0x3E) if b <= 100 => self.bypass_chorus = Some(b),
+            (0x02, 0x00, 0x3F) if b <= 100 => self.bypass_delay = Some(b),
+            (0x02, 0x00, 0x40) if b <= 100 => self.bypass_reverb = Some(b),
+            (0x02, 0x00, 0x42) if b <= 127 => self.exp_mod_min_envelope = Some(b),
+            (0x02, 0x00, 0x43) if b <= 127 => self.exp_mod_max_envelope = Some(b),
+            (0x02, 0x00, 0x44) if b <= 127 => self.exp_on_mod_min_envelope = Some(b),
+            (0x02, 0x00, 0x45) if b <= 127 => self.exp_on_mod_max_envelope = Some(b),
+            (0x02, 0x00, 0x46) if b <= 127 => self.gk_vol_mod_min_envelope = Some(b),
+            (0x02, 0x00, 0x47) if b <= 127 => self.gk_vol_mod_max_envelope = Some(b),
             _ => {
                 self.unknown_bytes.insert(format_key(page, hi, lo), b);
             }
@@ -1708,6 +2164,94 @@ impl PatchArea {
             if let Some(assign) = slot {
                 assign.emit_bytes(&mut bytes, base_msb, idx);
             }
+        }
+        // Page 0x02 tail
+        if let Some(v) = self.gk_set {
+            bytes.insert([base_msb, 0x02, 0x00, 0x24], v.to_byte());
+        }
+        if let Some(v) = self.guitar_out {
+            bytes.insert([base_msb, 0x02, 0x00, 0x25], v.to_byte());
+        }
+        if let Some(v) = self.v_link_pallet {
+            bytes.insert([base_msb, 0x02, 0x00, 0x26], v);
+        }
+        if let Some(v) = self.v_link_clip {
+            bytes.insert([base_msb, 0x02, 0x00, 0x27], v);
+        }
+        if let Some(v) = self.v_link_note_clip_change {
+            bytes.insert([base_msb, 0x02, 0x00, 0x28], v);
+        }
+        if let Some(v) = self.v_link_exp {
+            bytes.insert([base_msb, 0x02, 0x00, 0x29], v.to_byte());
+        }
+        if let Some(v) = self.v_link_exp_on {
+            bytes.insert([base_msb, 0x02, 0x00, 0x2A], v.to_byte());
+        }
+        if let Some(v) = self.v_link_gk_vol {
+            bytes.insert([base_msb, 0x02, 0x00, 0x2B], v.to_byte());
+        }
+        if let Some(v) = self.structure {
+            bytes.insert([base_msb, 0x02, 0x00, 0x2C], v.to_byte());
+        }
+        if let Some(v) = self.modeling_line_route {
+            bytes.insert([base_msb, 0x02, 0x00, 0x2D], v.to_byte());
+        }
+        if let Some(v) = self.analog_pu_line_route {
+            bytes.insert([base_msb, 0x02, 0x00, 0x2E], v.to_byte());
+        }
+        if let Some(v) = self.patch_level {
+            let [hi, lo] = v.to_two_bytes();
+            bytes.insert([base_msb, 0x02, 0x00, 0x30], hi);
+            bytes.insert([base_msb, 0x02, 0x00, 0x31], lo);
+        }
+        if let Some(v) = self.analog_pu_tone_sw {
+            bytes.insert([base_msb, 0x02, 0x00, 0x32], v.to_byte());
+        }
+        if let Some(v) = self.analog_pu_tone_level {
+            bytes.insert([base_msb, 0x02, 0x00, 0x33], v);
+        }
+        if let Some(v) = self.alt_tuning_sw {
+            bytes.insert([base_msb, 0x02, 0x00, 0x34], v.to_byte());
+        }
+        if let Some(v) = self.alt_tuning_type {
+            bytes.insert([base_msb, 0x02, 0x00, 0x35], v.to_byte());
+        }
+        for (i, v) in self.alt_tuning_user_shift.iter().enumerate() {
+            if let Some(b) = v {
+                bytes.insert([base_msb, 0x02, 0x00, 0x36 + i as u8], *b);
+            }
+        }
+        if let Some(v) = self.patch_tempo {
+            let [hi, lo] = v.to_two_bytes();
+            bytes.insert([base_msb, 0x02, 0x00, 0x3C], hi);
+            bytes.insert([base_msb, 0x02, 0x00, 0x3D], lo);
+        }
+        if let Some(v) = self.bypass_chorus {
+            bytes.insert([base_msb, 0x02, 0x00, 0x3E], v);
+        }
+        if let Some(v) = self.bypass_delay {
+            bytes.insert([base_msb, 0x02, 0x00, 0x3F], v);
+        }
+        if let Some(v) = self.bypass_reverb {
+            bytes.insert([base_msb, 0x02, 0x00, 0x40], v);
+        }
+        if let Some(v) = self.exp_mod_min_envelope {
+            bytes.insert([base_msb, 0x02, 0x00, 0x42], v);
+        }
+        if let Some(v) = self.exp_mod_max_envelope {
+            bytes.insert([base_msb, 0x02, 0x00, 0x43], v);
+        }
+        if let Some(v) = self.exp_on_mod_min_envelope {
+            bytes.insert([base_msb, 0x02, 0x00, 0x44], v);
+        }
+        if let Some(v) = self.exp_on_mod_max_envelope {
+            bytes.insert([base_msb, 0x02, 0x00, 0x45], v);
+        }
+        if let Some(v) = self.gk_vol_mod_min_envelope {
+            bytes.insert([base_msb, 0x02, 0x00, 0x46], v);
+        }
+        if let Some(v) = self.gk_vol_mod_max_envelope {
+            bytes.insert([base_msb, 0x02, 0x00, 0x47], v);
         }
         for (k, b) in &self.unknown_bytes {
             let (page, hi, lo) =
@@ -2273,6 +2817,106 @@ mod tests {
 
         let round = PatchArea::from_frames_at(&back_frames, TEMP_MSB);
         assert_eq!(round, area);
+    }
+
+    #[test]
+    fn page_02_tail_round_trips_metadata_block() {
+        // Cover 0x24..=0x47 (with two intentional gaps that fall through
+        // to unknown_bytes: 0x2F which has no FloorBoard customdesc, and
+        // 0x41 which has no PARAM at all).
+        let mut payload: Vec<u8> = vec![
+            PatchGkSet::User3.to_byte(),       // 0x24
+            GuitarOut::Modeling.to_byte(),     // 0x25
+            12,                                // 0x26 v_link_pallet
+            7,                                 // 0x27 v_link_clip
+            3,                                 // 0x28 v_link_note_clip_change
+            VLinkControl::ColorCb.to_byte(),   // 0x29
+            VLinkControl::Bright.to_byte(),    // 0x2A
+            VLinkControl::PlaySpeed.to_byte(), // 0x2B
+            PatchStructure::Structure2.to_byte(), // 0x2C
+            LineRoute::AmpMod.to_byte(),       // 0x2D
+            LineRoute::Mfx.to_byte(),          // 0x2E
+            0xAA,                              // 0x2F undocumented placeholder
+        ];
+        // Patch Level = 75 (0x4B) — nibbles 4 and B → bytes 0x04 0x0B.
+        let [pl_hi, pl_lo] = PatchLevel::new(75).unwrap().to_two_bytes();
+        payload.push(pl_hi); // 0x30
+        payload.push(pl_lo); // 0x31
+        payload.push(AnalogPuToneSw::Off.to_byte()); // 0x32 (= 0x01 — wire-reversed!)
+        payload.push(80); // 0x33 analog_pu_tone_level
+        payload.push(OnOff::On.to_byte()); // 0x34 alt_tuning_sw
+        payload.push(AltTuningType::Baritone.to_byte()); // 0x35
+        for v in [0x30, 0x32, 0x34, 0x40, 0x4E, 0x50] {
+            payload.push(v); // 0x36..=0x3B
+        }
+        // Patch Tempo = 0x96 (150) → nibbles 9, 6 → bytes 0x09 0x06.
+        let [pt_hi, pt_lo] = PatchTempo::new(0x96).to_two_bytes();
+        payload.push(pt_hi); // 0x3C
+        payload.push(pt_lo); // 0x3D
+        payload.push(50); // 0x3E bypass_chorus
+        payload.push(60); // 0x3F bypass_delay
+        payload.push(70); // 0x40 bypass_reverb
+        payload.push(0xBB); // 0x41 untyped placeholder
+        payload.push(0x10); // 0x42 exp_mod_min_envelope
+        payload.push(0x70); // 0x43 exp_mod_max_envelope
+        payload.push(0x05); // 0x44 exp_on_mod_min_envelope
+        payload.push(0x65); // 0x45 exp_on_mod_max_envelope
+        payload.push(0x20); // 0x46 gk_vol_mod_min_envelope
+        payload.push(0x60); // 0x47 gk_vol_mod_max_envelope
+
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x02, 0x00, 0x24],
+            data: Cow::Owned(payload),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+
+        assert_eq!(area.gk_set, Some(PatchGkSet::User3));
+        assert_eq!(area.guitar_out, Some(GuitarOut::Modeling));
+        assert_eq!(area.v_link_pallet, Some(12));
+        assert_eq!(area.v_link_clip, Some(7));
+        assert_eq!(area.v_link_note_clip_change, Some(3));
+        assert_eq!(area.v_link_exp, Some(VLinkControl::ColorCb));
+        assert_eq!(area.v_link_exp_on, Some(VLinkControl::Bright));
+        assert_eq!(area.v_link_gk_vol, Some(VLinkControl::PlaySpeed));
+        assert_eq!(area.structure, Some(PatchStructure::Structure2));
+        assert_eq!(area.modeling_line_route, Some(LineRoute::AmpMod));
+        assert_eq!(area.analog_pu_line_route, Some(LineRoute::Mfx));
+        assert_eq!(area.patch_level.unwrap().get(), 75);
+        assert_eq!(area.analog_pu_tone_sw, Some(AnalogPuToneSw::Off));
+        assert_eq!(area.analog_pu_tone_level, Some(80));
+        assert_eq!(area.alt_tuning_sw, Some(OnOff::On));
+        assert_eq!(area.alt_tuning_type, Some(AltTuningType::Baritone));
+        assert_eq!(area.alt_tuning_user_shift[0], Some(0x30));
+        assert_eq!(area.alt_tuning_user_shift[5], Some(0x50));
+        assert_eq!(area.patch_tempo.unwrap().raw(), 0x96);
+        assert_eq!(area.bypass_chorus, Some(50));
+        assert_eq!(area.bypass_delay, Some(60));
+        assert_eq!(area.bypass_reverb, Some(70));
+        assert_eq!(area.exp_mod_min_envelope, Some(0x10));
+        assert_eq!(area.exp_mod_max_envelope, Some(0x70));
+        assert_eq!(area.exp_on_mod_min_envelope, Some(0x05));
+        assert_eq!(area.exp_on_mod_max_envelope, Some(0x65));
+        assert_eq!(area.gk_vol_mod_min_envelope, Some(0x20));
+        assert_eq!(area.gk_vol_mod_max_envelope, Some(0x60));
+        // The two undocumented bytes survived via unknown_bytes.
+        assert_eq!(area.unknown_bytes.get("02:00:2F"), Some(&0xAA));
+        assert_eq!(area.unknown_bytes.get("02:00:41"), Some(&0xBB));
+
+        // Round-trip preserves everything.
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
+    }
+
+    #[test]
+    fn analog_pu_tone_sw_wire_bytes_are_reversed_from_onoff() {
+        // Sanity-check the wire reversal: byte 0x00 == AnalogPuToneSw::On,
+        // byte 0x01 == AnalogPuToneSw::Off. This is the OPPOSITE of the
+        // OnOff enum which uses 0x00=Off, 0x01=On.
+        assert_eq!(AnalogPuToneSw::On.to_byte(), 0x00);
+        assert_eq!(AnalogPuToneSw::Off.to_byte(), 0x01);
+        assert_eq!(OnOff::Off.to_byte(), 0x00);
+        assert_eq!(OnOff::On.to_byte(), 0x01);
     }
 
     #[test]
