@@ -1,10 +1,15 @@
 //! `gr55-wasm` — `wasm-bindgen` surface over `gr55-core` for browser /
 //! Node consumers (e.g. a proprietary web editor).
 //!
-//! API stays deliberately small in v1: strings in, strings out for
-//! patch payloads (YAML or raw SysEx bytes). TypeScript types come
-//! from the JSON Schema (`gr55 schema --of patch`) which the editor
-//! pulls separately and feeds to a form/validator library.
+//! Two kinds of API live here:
+//!
+//! 1. **Patch I/O** — strings in, strings out for patch payloads (YAML
+//!    or raw SysEx bytes). TypeScript types for the patch model itself
+//!    come from the JSON Schema (`gr55 schema --of patch`).
+//! 2. **Static-data exports** — the `gr55-core` per-block parameter
+//!    tables (MFX / MOD / Modeling / PCM tail) and the PCM tone catalog
+//!    surfaced as JS arrays so editors don't have to redeclare the data
+//!    on the TS side.
 //!
 //! Functions exposed:
 //!
@@ -16,13 +21,31 @@
 //!   PatchArea YAML at the given base MSB.
 //! - [`encode_patch_yaml_to_sysex`] — parse YAML, encode as raw SysEx
 //!   bytes (one DT1 frame per byte, ready to ship via Web MIDI).
+//! - [`validate_patch_yaml`] — parse YAML as a PatchArea and report
+//!   the parser error (if any) as a string array.
+//! - [`identity_request`] — bytes of the Universal Non-Realtime Identity
+//!   Request to broadcast.
+//! - [`matches_identity_reply`] — predicate for a GR-55 identity reply.
+//! - [`list_pcm_tones`] — the 910-entry PCM tone catalog (linear index,
+//!   wire bank/position, display number, name, category).
+//! - [`mfx_params`] — flat MFX parameter table (256 entries).
+//! - [`mod_params`] — flat page-0x07 parameter table (128 entries:
+//!   PreAmp + NS + MOD together).
+//! - [`modeling_params`] — flat Modeling parameter table (256 entries).
+//! - [`pcm_tail_params`] — flat PCM tone tail-page parameter table
+//!   (40 documented entries).
 //! - [`help_for`] — tooltip text for a parameter name.
 //! - [`version`] — crate version string.
 
 use wasm_bindgen::prelude::*;
 
 use gr55_core::g5l;
+use gr55_core::mfx_params::{MfxParamEntry, MFX_PARAMS};
+use gr55_core::mod_params::{ParamEntry as ModParamEntry, MOD_PARAMS};
+use gr55_core::modeling_params::{ModelingMode, ModelingParamEntry, MODELING_PARAMS};
 use gr55_core::patch::PatchArea;
+use gr55_core::pcm_tail_params::{PcmTailParamEntry, PCM_TAIL_PARAMS};
+use gr55_core::pcm_tones::{PCM_TONE_CATEGORIES, PCM_TONE_COUNT, PCM_TONE_NAMES};
 use gr55_core::sysex::{parse_frames_unchecked, Frame};
 
 #[wasm_bindgen]
@@ -106,6 +129,299 @@ pub fn encode_patch_yaml_to_sysex(
         out.extend(frame.encode());
     }
     Ok(out)
+}
+
+/// Parse `yaml` as a `PatchArea` and return any parser error as a
+/// single-element string array. Empty array means the YAML decoded
+/// cleanly. Use this to surface friendly errors on YAML import without
+/// having to round-trip through `encode_patch_yaml_to_sysex`.
+#[wasm_bindgen(js_name = validatePatchYaml)]
+pub fn validate_patch_yaml(yaml: &str) -> Vec<String> {
+    match serde_yaml::from_str::<PatchArea>(yaml) {
+        Ok(_) => Vec::new(),
+        Err(e) => vec![e.to_string()],
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+/// Bytes of the Universal Non-Realtime Identity Request, addressed to
+/// the broadcast device ID (`0x7F`). Send these via Web MIDI on patch
+/// scan to elicit a GR-55 identity reply.
+#[wasm_bindgen(js_name = identityRequest)]
+pub fn identity_request() -> Vec<u8> {
+    // F0 7E 7F 06 01 F7 — sub-id1=06 (general information), sub-id2=01
+    // (identity request). Device ID 7F = broadcast.
+    vec![0xF0, 0x7E, 0x7F, 0x06, 0x01, 0xF7]
+}
+
+/// True if `bytes` is a Universal Non-Realtime Identity Reply from a
+/// GR-55. Matches on Roland manufacturer + family code `53 02` + family
+/// number `00 00`; software-revision bytes are not checked.
+///
+/// Reply layout (15 bytes):
+/// `F0 7E [dev] 06 02 41 53 02 00 00 [sw_rev_4] F7`
+#[wasm_bindgen(js_name = matchesIdentityReply)]
+pub fn matches_identity_reply(bytes: &[u8]) -> bool {
+    if bytes.len() < 15 {
+        return false;
+    }
+    if bytes[0] != 0xF0 || bytes[bytes.len() - 1] != 0xF7 {
+        return false;
+    }
+    if bytes[1] != 0x7E {
+        return false;
+    }
+    // sub-id1=06 (general info), sub-id2=02 (identity reply)
+    if bytes[3] != 0x06 || bytes[4] != 0x02 {
+        return false;
+    }
+    // 0x41 = Roland manufacturer ID.
+    if bytes[5] != 0x41 {
+        return false;
+    }
+    // Family code (LSB first): 53 02. Family number: 00 00.
+    bytes[6] == 0x53 && bytes[7] == 0x02 && bytes[8] == 0x00 && bytes[9] == 0x00
+}
+
+// ---------------------------------------------------------------------------
+// PCM tone catalog
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Serialize)]
+struct PcmToneView {
+    /// Linear 0..=909.
+    linear: u16,
+    /// Wire bank byte (0..=7), high half of the two-byte tone selector.
+    bank: u8,
+    /// Wire position byte (0..=127) within the bank.
+    position: u8,
+    /// 1-based display number (1..=910) matching FloorBoard's labelling.
+    display_number: u16,
+    /// Tone name.
+    name: &'static str,
+    /// Tone category (e.g. "Acoustic Piano", "Synth Lead", "Drums").
+    /// 46 distinct values across the 910 tones; useful as a UI
+    /// "browse by category" key.
+    category: &'static str,
+}
+
+/// Full GR-55 PCM tone catalog as a JS array of `{ linear, bank,
+/// position, display_number, name, category }`. 910 entries.
+#[wasm_bindgen(js_name = listPcmTones)]
+pub fn list_pcm_tones() -> Result<JsValue, JsValue> {
+    let mut out = Vec::with_capacity(PCM_TONE_COUNT);
+    for i in 0..PCM_TONE_COUNT {
+        let linear = i as u16;
+        out.push(PcmToneView {
+            linear,
+            bank: (linear / 128) as u8,
+            position: (linear % 128) as u8,
+            display_number: linear + 1,
+            name: PCM_TONE_NAMES[i],
+            category: PCM_TONE_CATEGORIES[i],
+        });
+    }
+    serde_wasm_bindgen::to_value(&out).map_err(js_err)
+}
+
+// ---------------------------------------------------------------------------
+// Parameter tables (MFX / MOD / Modeling / PCM tail)
+//
+// Each table is exposed as a flat JS array. Filtering by owning type,
+// mode, category, group, etc. is left to the editor — keeps the wasm
+// surface small and makes the data trivially cacheable in JS.
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Serialize)]
+struct EnumValue {
+    /// Wire byte value.
+    byte: u8,
+    /// Human-readable label for that byte.
+    label: &'static str,
+}
+
+/// Shared shape for MFX / page-0x07 / Modeling / PCM-tail parameter
+/// entries. Fields not relevant to a given table (e.g. `mode` for MFX)
+/// are omitted via `Option`.
+#[derive(serde::Serialize)]
+struct ParamView {
+    /// Wire page byte.
+    page: u8,
+    /// Wire offset within the page.
+    offset: u8,
+    /// Effect type that owns this byte, snake_case (e.g. "equalizer",
+    /// "super_filter"). `None` for common header bytes and (in the
+    /// Modeling table) bytes that belong to a category rather than a
+    /// type. Only populated for MFX and MOD tables.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owning_type: Option<&'static str>,
+    /// Modeling-only: which mode this byte applies to ("guitar",
+    /// "bass", or "both").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mode: Option<&'static str>,
+    /// Modeling-only: top-level category ("E.GTR", "Acoustic", "Bass",
+    /// "Synth", "Modeling", "NS", or "").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    category: Option<&'static str>,
+    /// Modeling-only: types subset (`desc` field — dash-separated IDs,
+    /// sub-type names, or descriptive phrases). Empty when the byte
+    /// applies to all types in its category.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    types: Option<&'static str>,
+    /// PCM-tail-only: editor UI bucket ("filter", "tvf", "tva",
+    /// "pitch_env", "lfo", "portamento", "velocity", "reserved").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    group: Option<&'static str>,
+    /// Human-readable parameter name.
+    name: &'static str,
+    /// Named byte values (empty for purely-numeric params).
+    values: Vec<EnumValue>,
+    /// Raw wire-byte (min, max). `None` for purely enumerated params.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    range: Option<(u8, u8)>,
+    /// Display (min, max) for params whose display values differ from
+    /// their wire bytes (e.g. -15..=+15 dB across wire 0..=30).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_range: Option<(i32, i32)>,
+    /// Tooltip-friendly description (may be empty).
+    help: &'static str,
+}
+
+fn enum_values(values: &'static [(u8, &'static str)]) -> Vec<EnumValue> {
+    values
+        .iter()
+        .map(|(b, l)| EnumValue {
+            byte: *b,
+            label: *l,
+        })
+        .collect()
+}
+
+fn mfx_view(e: &MfxParamEntry) -> ParamView {
+    ParamView {
+        page: e.page,
+        offset: e.offset,
+        owning_type: e.owning_type.map(|o| o.as_snake()),
+        mode: None,
+        category: None,
+        types: None,
+        group: None,
+        name: e.name,
+        values: enum_values(e.values),
+        range: e.range,
+        display_range: e.display_range,
+        help: e.help,
+    }
+}
+
+fn mod_view(e: &ModParamEntry) -> ParamView {
+    ParamView {
+        page: e.page,
+        offset: e.offset,
+        owning_type: e.owning_type.map(|o| o.as_snake()),
+        mode: None,
+        category: None,
+        types: None,
+        group: None,
+        name: e.name,
+        values: enum_values(e.values),
+        range: e.range,
+        display_range: e.display_range,
+        help: e.help,
+    }
+}
+
+fn modeling_mode_snake(m: ModelingMode) -> &'static str {
+    match m {
+        ModelingMode::Guitar => "guitar",
+        ModelingMode::Bass => "bass",
+        ModelingMode::Both => "both",
+    }
+}
+
+fn modeling_view(e: &ModelingParamEntry) -> ParamView {
+    ParamView {
+        page: e.page,
+        offset: e.offset,
+        owning_type: None,
+        mode: Some(modeling_mode_snake(e.mode)),
+        category: Some(e.category),
+        types: Some(e.types),
+        group: None,
+        name: e.name,
+        values: enum_values(e.values),
+        range: e.range,
+        display_range: e.display_range,
+        help: e.help,
+    }
+}
+
+fn pcm_tail_view(e: &PcmTailParamEntry) -> ParamView {
+    ParamView {
+        // PCM tail bytes are reachable on page 0x30 (Tone 1) or 0x31
+        // (Tone 2); the table is page-agnostic so we report the offset
+        // and a synthetic page=0 placeholder.
+        page: 0,
+        offset: e.offset,
+        owning_type: None,
+        mode: None,
+        category: None,
+        types: None,
+        group: Some(e.group.as_snake()),
+        name: e.name,
+        values: enum_values(e.values),
+        range: e.range,
+        display_range: e.display_range,
+        help: e.help,
+    }
+}
+
+/// Flat MFX parameter table — 256 entries (page 0x03 + page 0x04).
+/// Each entry carries its wire address, `owning_type` (snake-case of
+/// the effect type, or `null` for the 6 common header bytes), and full
+/// labelling / range / help metadata. Filter on `owning_type` in the
+/// editor to render a specific MFX type's tail.
+#[wasm_bindgen(js_name = mfxParams)]
+pub fn mfx_params() -> Result<JsValue, JsValue> {
+    let out: Vec<ParamView> = MFX_PARAMS.iter().map(mfx_view).collect();
+    serde_wasm_bindgen::to_value(&out).map_err(js_err)
+}
+
+/// Flat page-0x07 parameter table — 128 entries covering PreAmp + NS
+/// + MOD common-header + MOD type-specific tails. The "MOD" name
+/// matches the upstream `MOD_PARAMS` symbol; the table actually spans
+/// the whole page. Filter on `owning_type` for MOD's 14 effect types,
+/// or on `offset` ranges for PreAmp (`0x00..=0x10`) / NS (`0x5A..=0x5C`)
+/// / MOD-common (`0x11..=0x17`) / MOD-tail (`0x18..=0x59`).
+#[wasm_bindgen(js_name = modParams)]
+pub fn mod_params() -> Result<JsValue, JsValue> {
+    let out: Vec<ParamView> = MOD_PARAMS.iter().map(mod_view).collect();
+    serde_wasm_bindgen::to_value(&out).map_err(js_err)
+}
+
+/// Flat Modeling parameter table — 256 entries (page 0x10 = Guitar
+/// mode + common header, page 0x11 = Bass mode). Each entry carries
+/// `mode` ("guitar" / "bass" / "both"), `category` (e.g. "E.GTR",
+/// "Synth"), and `types` (FloorBoard's `desc` — dash-separated IDs
+/// or sub-type names). Filter on these in the editor.
+#[wasm_bindgen(js_name = modelingParams)]
+pub fn modeling_params() -> Result<JsValue, JsValue> {
+    let out: Vec<ParamView> = MODELING_PARAMS.iter().map(modeling_view).collect();
+    serde_wasm_bindgen::to_value(&out).map_err(js_err)
+}
+
+/// Flat PCM tone tail-page parameter table — 40 documented entries
+/// covering Filter / TVF / TVA / PitchEnv / LFO / Velocity /
+/// Portamento. Both Tone 1 (page 0x30) and Tone 2 (page 0x31) share
+/// this layout; the `page` field is a placeholder (`0`). Use the
+/// `group` field for editor UI bucketing.
+#[wasm_bindgen(js_name = pcmTailParams)]
+pub fn pcm_tail_params() -> Result<JsValue, JsValue> {
+    let out: Vec<ParamView> = PCM_TAIL_PARAMS.iter().map(pcm_tail_view).collect();
+    serde_wasm_bindgen::to_value(&out).map_err(js_err)
 }
 
 fn js_err<E: std::fmt::Display>(e: E) -> JsValue {
