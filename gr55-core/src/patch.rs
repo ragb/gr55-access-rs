@@ -1203,7 +1203,14 @@ pub struct Mod {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pan: Option<u8>,
     /// Type-specific tail at `0x07:00:18..=59`, keyed by page offset.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    /// YAML serialization uses **named keys** from
+    /// [`crate::mod_params::MOD_PARAMS`] (e.g. `"Distortion Drive"`).
+    /// See [`crate::mod_tail_serde`] for the wire format.
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        with = "crate::mod_tail_serde"
+    )]
     pub raw_tail: BTreeMap<u8, u8>,
 }
 

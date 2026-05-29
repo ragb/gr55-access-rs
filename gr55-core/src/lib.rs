@@ -5,6 +5,7 @@ pub mod codec;
 pub mod mfx_params;
 pub mod midi_map;
 pub mod mod_params;
+pub(crate) mod mod_tail_serde;
 pub mod modeling_params;
 pub mod patch;
 pub mod pcm_tail_params;
