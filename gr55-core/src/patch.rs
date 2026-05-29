@@ -852,10 +852,6 @@ pub struct Mfx {
     /// Reverb Send at `0x02`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reverb_send: Option<u8>,
-    /// FloorBoard labels offset `0x03` as `name="reserved"` with no
-    /// `customdesc` and full 0..=255 range. Round-tripped as raw u8.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reserved: Option<u8>,
     /// MFX Switch at `0x04`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub switch: Option<OnOff>,
@@ -927,8 +923,10 @@ impl Mfx {
                 self.reverb_send = Some(b);
                 true
             }
+            // 0x03 is FB-undocumented (was a typed `reserved` field; now
+            // round-trips through `raw_tail` keyed as `"0x03": N`).
             0x03 => {
-                self.reserved = Some(b);
+                self.raw_tail.insert(linear, b);
                 true
             }
             0x04 => match OnOff::from_byte(b) {
@@ -1032,7 +1030,6 @@ impl Mfx {
         put!(0x00, self.chorus_send);
         put!(0x01, self.delay_send);
         put!(0x02, self.reverb_send);
-        put!(0x03, self.reserved);
         put!(0x04, self.switch.map(OnOff::to_byte));
         put!(0x05, self.mfx_type.map(MfxType::to_byte));
         put!(0x06, self.pan);
@@ -1111,7 +1108,6 @@ impl Mfx {
             (0x00, self.chorus_send),
             (0x01, self.delay_send),
             (0x02, self.reverb_send),
-            (0x03, self.reserved),
             (0x04, self.switch.map(OnOff::to_byte)),
             (0x05, self.mfx_type.map(MfxType::to_byte)),
             (0x06, self.pan),
@@ -1195,10 +1191,6 @@ pub struct Mod {
     /// Amp/Mod Reverb Send at `0x07:00:13`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reverb_send: Option<u8>,
-    /// FloorBoard labels `0x07:00:14` as `customdesc="null"` with full
-    /// 0..=255 range. Round-tripped as raw u8.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub null_14: Option<u8>,
     /// MOD switch at `0x07:00:15`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub switch: Option<OnOff>,
@@ -1237,8 +1229,10 @@ impl Mod {
                 self.reverb_send = Some(b);
                 true
             }
+            // 0x14 is FB-undocumented (was a typed `null_14` field; now
+            // round-trips through `raw_tail` keyed as `"0x14": N`).
             0x14 => {
-                self.null_14 = Some(b);
+                self.raw_tail.insert(off, b);
                 true
             }
             0x15 => match OnOff::from_byte(b) {
@@ -1280,7 +1274,6 @@ impl Mod {
         put!(0x11, self.chorus_send);
         put!(0x12, self.delay_send);
         put!(0x13, self.reverb_send);
-        put!(0x14, self.null_14);
         put!(0x15, self.switch.map(OnOff::to_byte));
         put!(0x16, self.mod_type.map(ModType::to_byte));
         put!(0x17, self.pan);
@@ -1303,7 +1296,6 @@ impl Mod {
             (0x11_u8, self.chorus_send),
             (0x12, self.delay_send),
             (0x13, self.reverb_send),
-            (0x14, self.null_14),
             (0x15, self.switch.map(OnOff::to_byte)),
             (0x16, self.mod_type.map(ModType::to_byte)),
             (0x17, self.pan),
@@ -6075,7 +6067,8 @@ mod tests {
         assert_eq!(m.chorus_send, Some(70));
         assert_eq!(m.delay_send, Some(45));
         assert_eq!(m.reverb_send, Some(30));
-        assert_eq!(m.reserved, Some(0xAB));
+        // Offset 0x03 is FB-undocumented; flows through raw_tail.
+        assert_eq!(m.raw_tail.get(&0x03), Some(&0xAB));
         assert_eq!(m.switch, Some(OnOff::On));
         assert_eq!(m.mfx_type, Some(MfxType::Phaser));
         assert_eq!(m.pan, Some(50));
@@ -6236,7 +6229,8 @@ mod tests {
         assert_eq!(modu.chorus_send, Some(40));
         assert_eq!(modu.delay_send, Some(35));
         assert_eq!(modu.reverb_send, Some(30));
-        assert_eq!(modu.null_14, Some(0xCC));
+        // Offset 0x14 is FB-undocumented; flows through raw_tail.
+        assert_eq!(modu.raw_tail.get(&0x14), Some(&0xCC));
         assert_eq!(modu.switch, Some(OnOff::On));
         assert_eq!(modu.mod_type, Some(ModType::Phaser));
         assert_eq!(modu.pan, Some(50));
