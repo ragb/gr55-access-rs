@@ -896,10 +896,16 @@ pub struct Mfx {
     /// Every byte not covered by the typed fields above. Keys are
     /// **linear offsets** spanning both pages: `0x00..=0x7F` = page
     /// `0x03` offsets `0x00..=0x7F`, `0x80..=0xFF` = page `0x04`
-    /// offsets `0x00..=0x7F`. Looking these up against
-    /// [`crate::mfx_params::MFX_PARAMS`] gives the parameter name and
-    /// owning effect type.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    /// offsets `0x00..=0x7F`.
+    ///
+    /// YAML serialization uses **named keys** from
+    /// [`crate::mfx_params::MFX_PARAMS`] (e.g. `"Super Filter Cutoff"`,
+    /// `"Flanger CutOff Freq"`). See [`crate::mfx_tail_serde`].
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        with = "crate::mfx_tail_serde"
+    )]
     pub raw_tail: BTreeMap<u16, u8>,
 }
 
