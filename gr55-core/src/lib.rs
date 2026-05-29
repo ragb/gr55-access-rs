@@ -4,6 +4,7 @@ pub mod address;
 pub mod codec;
 pub mod midi_map;
 pub mod patch;
+pub mod pcm_tones;
 pub mod sysex;
 pub mod system;
 

@@ -1089,6 +1089,25 @@ impl PcmToneIndex {
         let position = (self.0 % 128) as u8;
         [bank, position]
     }
+    /// Tone name from FloorBoard's PARAM `name` attribute, with the
+    /// leading 1-based display number stripped. E.g. linear 0 →
+    /// `"St.Piano 1"`, linear 909 → `"Dance Kit 3"`. Pulled from the
+    /// build-time-generated table in [`crate::pcm_tones`].
+    pub fn name(self) -> &'static str {
+        crate::pcm_tones::PCM_TONE_NAMES[self.0 as usize]
+    }
+    /// Tone category (from FloorBoard's `customdesc`) — e.g.
+    /// `"Acoustic Piano"`, `"Synth Lead"`, `"Drums"`. Repeats heavily:
+    /// the 910 tones share 46 distinct categories. Useful as a UI
+    /// "browse by category" key.
+    pub fn category(self) -> &'static str {
+        crate::pcm_tones::PCM_TONE_CATEGORIES[self.0 as usize]
+    }
+    /// 1-based display number (1..=910). Matches the number FloorBoard
+    /// prepends to each tone name in the original midi.xml PARAM list.
+    pub fn display_number(self) -> u16 {
+        self.0 + 1
+    }
 }
 
 /// PCM tone portamento switch at PCM-page offset `0x0C`.
@@ -5716,6 +5735,29 @@ mod tests {
         assert!(PcmToneIndex::from_two_bytes(8, 0).is_none()); // bank > 7
         assert!(PcmToneIndex::from_two_bytes(0, 0x80).is_none()); // pos > 0x7F
         assert!(PcmToneIndex::from_two_bytes(7, 14).is_none()); // valid bytes, linear > 909
+    }
+
+    #[test]
+    fn pcm_tone_index_lookup_matches_catalog() {
+        // First tone in the catalog.
+        let first = PcmToneIndex::new(0).unwrap();
+        assert_eq!(first.name(), "St.Piano 1");
+        assert_eq!(first.category(), "Acoustic Piano");
+        assert_eq!(first.display_number(), 1);
+
+        // Tone 128 — first entry of bank 1 — sits right after the last
+        // entry of bank 0. Spot-check the boundary is correct.
+        let bank_1_start = PcmToneIndex::new(128).unwrap();
+        assert_eq!(bank_1_start.name(), "Bell 2");
+
+        // Last populated tone.
+        let last = PcmToneIndex::new(909).unwrap();
+        assert_eq!(last.name(), "Dance Kit 3");
+        assert_eq!(last.category(), "Drums");
+        assert_eq!(last.display_number(), 910);
+
+        // The const table size matches what we promise.
+        assert_eq!(crate::pcm_tones::PCM_TONE_COUNT, 910);
     }
 
     #[test]
