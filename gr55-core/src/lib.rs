@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 pub mod address;
+pub mod assign_targets;
 pub mod codec;
 pub mod default_patch;
 pub mod g5l;

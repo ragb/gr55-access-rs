@@ -42,6 +42,7 @@ use std::borrow::Cow;
 use wasm_bindgen::prelude::*;
 
 use gr55_core::address::PatchSlot;
+use gr55_core::assign_targets::{AssignTargetMode, ASSIGN_TARGETS};
 use gr55_core::g5l;
 use gr55_core::inbound::{classify_inbound as core_classify_inbound, InboundMessage};
 use gr55_core::mfx_params::{MfxParamEntry, MFX_PARAMS};
@@ -620,6 +621,49 @@ pub fn modeling_params() -> Result<JsValue, JsValue> {
 #[wasm_bindgen(js_name = pcmTailParams)]
 pub fn pcm_tail_params() -> Result<JsValue, JsValue> {
     let out: Vec<ParamView> = PCM_TAIL_PARAMS.iter().map(pcm_tail_view).collect();
+    serde_wasm_bindgen::to_value(&out).map_err(js_err)
+}
+
+// ---------------------------------------------------------------------------
+// Assign-target catalog
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Serialize)]
+struct AssignTargetView {
+    /// `"guitar"` or `"bass"` — which patch-mode Target tree.
+    mode: &'static str,
+    /// Wire byte for the Assign `target` field (sub-list index 0..=2).
+    list: u8,
+    /// Wire byte for the Assign `target_b` field (entry within the
+    /// sub-list, `0..=255`). The high bit overflows into `target_c`'s
+    /// LSB at encode time.
+    value: u8,
+    /// Human-readable parameter name.
+    name: &'static str,
+}
+
+/// The GR-55's assign modulation-destination catalog — every
+/// parameter an Assign can target, with its `(mode, list, value)`
+/// wire identifier and human-readable name. Extracted from
+/// FloorBoard's `midi.xml` `<Tables>` / `<DATA customdesc="Target">`
+/// branches.
+///
+/// Editors can render a labelled picker (filter by `mode`, group by
+/// `list`) instead of asking users to enter raw byte indices.
+#[wasm_bindgen(js_name = assignTargets)]
+pub fn assign_targets() -> Result<JsValue, JsValue> {
+    let out: Vec<AssignTargetView> = ASSIGN_TARGETS
+        .iter()
+        .map(|e| AssignTargetView {
+            mode: match e.mode {
+                AssignTargetMode::Guitar => "guitar",
+                AssignTargetMode::Bass => "bass",
+            },
+            list: e.list,
+            value: e.value,
+            name: e.name,
+        })
+        .collect();
     serde_wasm_bindgen::to_value(&out).map_err(js_err)
 }
 
