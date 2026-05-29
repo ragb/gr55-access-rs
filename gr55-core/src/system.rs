@@ -298,6 +298,7 @@ pub const ADDR_EXP_PEDAL_ON_FUNCTION: [u8; 4] = [0x02, 0x02, 0x24, 0x00];
 
 /// Reusable Off/On.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum OnOff {
     Off,
@@ -323,6 +324,7 @@ impl OnOff {
 /// GK Set (`<PARAM value="00" name="GK Set" abbr="Both Modes">` in midi.xml).
 /// Selects which of 10 GK Pickup user setups applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GkSet {
     User1,
@@ -371,6 +373,7 @@ impl GkSet {
 
 /// Output-stage routing target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum OutputSelect {
     LinePhones,
@@ -419,6 +422,7 @@ impl OutputSelect {
 
 /// MIDI channel 1..=16, encoded on the wire as byte 0..=15.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct MidiChannel(u8);
 
@@ -443,6 +447,7 @@ impl MidiChannel {
 
 /// MIDI Out Mode (Mono / Poly).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum MidiOutMode {
     Mono,
@@ -468,6 +473,7 @@ impl MidiOutMode {
 /// String Channel base (which 6 consecutive MIDI channels carry the 6 strings).
 /// Encoded as the low end of the range: `0` = 1..6, `10` = 11..16.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct StringChannelBase(u8);
 
@@ -490,6 +496,7 @@ impl StringChannelBase {
 /// (The mapping has a jump because FloorBoard's enum skips the CC#32..63 range
 /// to avoid LSB pairs.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum PedalCc {
     Off,
@@ -518,6 +525,7 @@ impl PedalCc {
 /// EXP pedal bend range in semitones (-24..=+24). Wire encoding adds 24
 /// to land in the unsigned `0x00..=0x30` range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct ExpPedalBend(i8);
 
@@ -546,6 +554,7 @@ impl ExpPedalBend {
 
 /// MIDI Map mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum MidiMap {
     DefaultFixed,
@@ -570,6 +579,7 @@ impl MidiMap {
 
 /// Source feeding the GR-55's Guitar Out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GuitarOutSource {
     Patch,
@@ -603,6 +613,7 @@ impl GuitarOutSource {
 
 /// Master tune in Hz (435..=445). Wire encoding: 0 = 435 Hz, 10 = 445 Hz.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct MasterTuneHz(u16);
 
@@ -651,6 +662,7 @@ pub(crate) fn decode_nibble_pair(hi: u8, lo: u8) -> Option<u8> {
 /// `byte_hi = value / 128`, `byte_lo = value % 128`. Used for Player Level,
 /// USB Audio In, and USB Audio Out at offsets `0x1B/0x1D/0x1F` of MSB `0x02`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct AudioLevel(u8);
 
@@ -685,6 +697,7 @@ impl AudioLevel {
 /// Mined from `midi.xml` `<PARAM value="00" customdesc="Function">` under
 /// `<LSB value="02" name="page 2">` on MSB `0x02`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum CtlPedalFunction {
     Off,
@@ -776,6 +789,7 @@ impl CtlPedalFunction {
 /// `0x0A` — which appears intentional; preserving as `Modulation` and
 /// `ModControl` to make the variants distinct in Rust.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ExpPedalFunction {
     Off,
@@ -833,6 +847,7 @@ impl ExpPedalFunction {
 /// Differs from `CtlPedalFunction` only in that there's no `Hold` action
 /// (a momentary footswitch can't hold).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ExpPedalSwitchFunction {
     Off,
@@ -917,6 +932,7 @@ impl ExpPedalSwitchFunction {
 /// Pitch Bend depth in semitones, range `-12..=+12`. Wire encoding offsets
 /// by 24 (byte `0x18` = 0). Used for EXP-OFF and EXP-ON Pitch Bend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct PitchBendDepth(i8);
 
@@ -946,6 +962,7 @@ impl PitchBendDepth {
 /// CTL Pedal Hold Type — 4 latch / momentary variants.
 /// Mined from midi.xml:3087-3092 `<PARAM value="01" customdesc="Hold Type">`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum HoldType {
     Type1,
@@ -977,6 +994,7 @@ impl HoldType {
 /// CTL Pedal Switch Mode (Latch / Moment).
 /// Mined from midi.xml:3093-3096 `<PARAM value="02" customdesc="Switch Mode">`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SwitchMode {
     Latch,
@@ -1003,6 +1021,7 @@ impl SwitchMode {
 /// scheme used by the Player / USB audio levels): the high nibble of the
 /// value lands at `[02, 00, 0x30]` and the low nibble at `[02, 00, 0x31]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct PatchLevel(u8);
 
@@ -1036,6 +1055,7 @@ impl PatchLevel {
 /// behavior may reject values outside the GR-55's documented range
 /// (Roland devices typically support 40..=250 BPM for master tempo).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct MasterBpm(u8);
 
@@ -1064,6 +1084,7 @@ impl MasterBpm {
 
 /// Guitar/Bass mode (same enum as patch byte 0; reused for system Startup Mode).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
     Guitar,
@@ -1100,6 +1121,7 @@ impl Mode {
 /// Remaining bytes round-trip verbatim through `raw_bytes` until each gets
 /// promoted to its own typed accessor.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case", default)]
 pub struct GkSetup {
     /// Setup name. 8 ASCII chars (`abbr="Name1"`..`"Name8"` at offsets
@@ -1239,6 +1261,7 @@ pub struct GkSetup {
 
 /// Fixed-length 8-char ASCII name (printable range `0x20..=0x7E`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct GkSetupName(pub [u8; 8]);
 
@@ -1301,6 +1324,7 @@ pub enum GkSetupNameError {
 /// Hex Pickup model — mined from midi.xml:4666-4673
 /// `<PARAM value="08" abbr="Guitar Mode" customdesc="Hex PU Type">`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum HexPuType {
     Gk3,
@@ -1342,6 +1366,7 @@ impl HexPuType {
 
 /// Hex Pickup phase — midi.xml:4681 `customdesc="PU Phase"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum PuPhase {
     Normal,
@@ -1366,6 +1391,7 @@ impl PuPhase {
 
 /// Hex Pickup direction — midi.xml:4685 `customdesc="PU Direction"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum PuDirection {
     Normal,
@@ -1390,6 +1416,7 @@ impl PuDirection {
 
 /// GK switch S1 / S2 position — midi.xml:4689 `customdesc="S1/S2 Position"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum S1S2Position {
     Normal,
@@ -1416,6 +1443,7 @@ impl S1S2Position {
 /// (midi.xml:4693-4734 — `<PARAM value="0E" customdesc="Normal PU Gain">`
 /// enumerates 41 values from `-20 dB` at byte `0x00` to `+20 dB` at `0x28`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct NormalPuGain(i8);
 
@@ -1445,6 +1473,7 @@ impl NormalPuGain {
 /// Piezo Low / Piezo High pickup gain in dB, `-10..=+10`. Wire byte = `dB + 10`.
 /// midi.xml:4736-4781.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct PiezoGain(i8);
 
@@ -1473,6 +1502,7 @@ impl PiezoGain {
 
 /// Play feel — 1..=5. midi.xml:5058-5063.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct PlayFeel(u8);
 
@@ -1502,6 +1532,7 @@ impl PlayFeel {
 /// 0..=10 rating (wire = user value). Shared by Low velocity cut, Nuance
 /// dynamics, Nuance trim per midi.xml:5065-5114.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct Rating0To10(u8);
 
@@ -1526,6 +1557,7 @@ impl Rating0To10 {
 
 /// 1..=10 rating. Used by Velocity dynamics per midi.xml:5078-5088.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct Rating1To10(u8);
 
@@ -1550,6 +1582,7 @@ impl Rating1To10 {
 
 /// Down Shift in semitones, `-5..=0`. Wire byte = `-value`. midi.xml:5116-5122.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct DownShift(i8);
 
@@ -1580,6 +1613,7 @@ impl DownShift {
 /// only 5 entries, omits Piezo Fishman and Piezo L.R. Baggs.
 /// midi.xml:6148-6153 `<PARAM value="2B" abbr="Bass Mode" customdesc="Hex PU Type">`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum BassHexPuType {
     Gk3b,
@@ -1616,6 +1650,7 @@ impl BassHexPuType {
 /// GK pickup position — Bass-Mode-only; selects how the pickup is aligned
 /// across the strings on the bass. midi.xml:6161-6169 (8 variants).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GkPuPosition {
     FourString1,
@@ -1659,6 +1694,7 @@ impl GkPuPosition {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case", default)]
 pub struct SystemArea {
     /// Currently-selected patch, encoded on the wire as two consecutive 7-bit

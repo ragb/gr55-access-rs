@@ -103,6 +103,15 @@ fn find_name(owner: Option<ModTypeOwner>, name: &str) -> Option<u8> {
     None
 }
 
+/// Custom schema describing the actual YAML shape:
+/// `Map<EffectTypeOrCategory, Map<ParamName, byte>>` rather than the
+/// raw `BTreeMap<u16, u8>` wire form.
+#[cfg(feature = "schema")]
+pub fn schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    use std::collections::BTreeMap;
+    <BTreeMap<String, BTreeMap<String, u8>> as schemars::JsonSchema>::json_schema(gen)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -92,6 +92,16 @@ pub enum Command {
         b: PathBuf,
     },
 
+    /// Emit JSON Schema for the YAML preset format.
+    Schema {
+        /// Which top-level type to dump the schema for.
+        #[arg(long, value_enum, default_value_t = SchemaTarget::Patch)]
+        of: SchemaTarget,
+        /// Output JSON file path. Use `-` for stdout (default).
+        #[arg(short, long, default_value = "-")]
+        output: PathBuf,
+    },
+
     /// Parse a FloorBoard `.g5l` library file and write one patch slot
     /// as YAML (no device needed).
     ImportG5l {
@@ -105,6 +115,14 @@ pub enum Command {
         #[arg(short, long)]
         output: PathBuf,
     },
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum SchemaTarget {
+    /// JSON Schema for `PatchArea` — what dump/sync/show consume.
+    Patch,
+    /// JSON Schema for `SystemArea` — system-area YAML.
+    System,
 }
 
 #[derive(Debug, clap::Args)]

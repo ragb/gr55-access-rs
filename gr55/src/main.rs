@@ -12,7 +12,7 @@ use gr55_core::patch::PatchArea;
 use gr55_core::sysex::{Frame, SOX};
 use gr55_core::SystemArea;
 
-use crate::cli::{Cli, Command};
+use crate::cli::{Cli, Command, SchemaTarget};
 use crate::midi::{list_ports, MidiSession};
 
 fn main() -> Result<()> {
@@ -57,7 +57,24 @@ fn main() -> Result<()> {
             slot,
             output,
         } => import_g5l(input, *slot, output),
+        Command::Schema { of, output } => schema_emit(*of, output),
     }
+}
+
+fn schema_emit(target: SchemaTarget, output: &Path) -> Result<()> {
+    let schema = match target {
+        SchemaTarget::Patch => schemars::schema_for!(PatchArea),
+        SchemaTarget::System => schemars::schema_for!(SystemArea),
+    };
+    let json = serde_json::to_string_pretty(&schema)
+        .context("serializing schema")?;
+    if output == Path::new("-") {
+        println!("{json}");
+    } else {
+        std::fs::write(output, json)
+            .with_context(|| format!("writing {}", output.display()))?;
+    }
+    Ok(())
 }
 
 /// Live current-patch (TEMP) RAM base address.
