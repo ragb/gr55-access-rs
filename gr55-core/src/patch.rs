@@ -6816,4 +6816,35 @@ mod tests {
         let err = PatchName::from_str("0123456789ABCDEFG").unwrap_err();
         assert!(matches!(err, PatchNameError::TooLong(17)));
     }
+
+    /// Probe what FloorBoard's default patch leaves in `unknown_bytes` after
+    /// a full PatchArea decode. Prints the offending addresses (and the
+    /// total count) so we can see which PatchArea fields the typed model
+    /// still owes coverage for.
+    ///
+    /// Run with `cargo test -p gr55-core floorboard_default_patch_unknown_bytes_audit -- --nocapture`.
+    #[test]
+    fn floorboard_default_patch_unknown_bytes_audit() {
+        const FB_PATCH_MSB: u8 = 0x18;
+        let bytes: &[u8] = include_bytes!("../tests/fixtures/floorboard_default_patch.syx");
+        let frames: Vec<Frame<'static>> = crate::sysex::parse_frames(bytes)
+            .filter_map(|r| r.ok())
+            .map(|f| f.into_owned())
+            .collect();
+        let area = PatchArea::from_frames_at(&frames, FB_PATCH_MSB);
+
+        eprintln!(
+            "FloorBoard default patch: {} frames, PatchArea.unknown_bytes count = {}",
+            frames.len(),
+            area.unknown_bytes.len(),
+        );
+        let mut sorted: Vec<_> = area.unknown_bytes.iter().collect();
+        sorted.sort_by(|a, b| a.0.cmp(b.0));
+        for (addr, b) in sorted.iter().take(60) {
+            eprintln!("  {addr} = 0x{b:02X}");
+        }
+        if sorted.len() > 60 {
+            eprintln!("  ... ({} more)", sorted.len() - 60);
+        }
+    }
 }
