@@ -1973,7 +1973,11 @@ impl Pcm {
                 }
                 None => false,
             },
-            0x10..=0x15 if b <= 100 => {
+            // String Level 1-6. FloorBoard documents the display range as
+            // 0..=100 but real-device patches (including the FloorBoard
+            // default fixture) emit `0x7F` here, so accept the full
+            // 7-bit byte range for lossless round-trip.
+            0x10..=0x15 if b <= 0x7F => {
                 self.string_level[(off - 0x10) as usize] = Some(b);
                 true
             }
@@ -6828,12 +6832,47 @@ mod tests {
         assert!(matches!(err, PatchNameError::TooLong(17)));
     }
 
+    /// FloorBoard `default.syx` round-trips losslessly: decode →
+    /// re-encode → re-decode produces an identical PatchArea. This is the
+    /// end-to-end import-and-write guarantee — every byte the fixture
+    /// carries either lands in a typed field or in `unknown_bytes`, and
+    /// both survive the emit path back to wire frames.
+    #[test]
+    fn floorboard_default_patch_round_trips_losslessly() {
+        const FB_PATCH_MSB: u8 = 0x18;
+        let bytes: &[u8] = include_bytes!("../tests/fixtures/floorboard_default_patch.syx");
+        let frames: Vec<Frame<'static>> = crate::sysex::parse_frames(bytes)
+            .filter_map(|r| r.ok())
+            .map(|f| f.into_owned())
+            .collect();
+        let area = PatchArea::from_frames_at(&frames, FB_PATCH_MSB);
+
+        let re_emitted = area
+            .to_frames(0x10, FB_PATCH_MSB)
+            .expect("re-emit FloorBoard default patch");
+        let area2 = PatchArea::from_frames_at(&re_emitted, FB_PATCH_MSB);
+
+        assert_eq!(
+            area, area2,
+            "PatchArea should be invariant under decode → emit → decode"
+        );
+    }
+
     /// Probe what FloorBoard's default patch leaves in `unknown_bytes` after
-    /// a full PatchArea decode. Prints the offending addresses (and the
-    /// total count) so we can see which PatchArea fields the typed model
-    /// still owes coverage for.
+    /// a full PatchArea decode. Asserts the count matches the documented
+    /// breakdown (regression catch — any future typing work should drop
+    /// this number) and prints a per-block summary under `--nocapture`.
     ///
-    /// Run with `cargo test -p gr55-core floorboard_default_patch_unknown_bytes_audit -- --nocapture`.
+    /// As of the last protocol pass the 94 remaining bytes are all
+    /// FloorBoard-undocumented padding — every one of them has either
+    /// `customdesc="null"` or empty `desc`+`customdesc` in `midi.xml`.
+    /// They round-trip losslessly via `unknown_bytes` (see
+    /// `floorboard_default_patch_round_trips_losslessly`) so no
+    /// information is lost; we just can't surface them as typed fields
+    /// without new protocol information.
+    ///
+    /// Run with `cargo test -p gr55-core floorboard_default_patch_unknown_bytes_audit -- --nocapture`
+    /// to see the per-address dump.
     #[test]
     fn floorboard_default_patch_unknown_bytes_audit() {
         const FB_PATCH_MSB: u8 = 0x18;
@@ -6844,18 +6883,40 @@ mod tests {
             .collect();
         let area = PatchArea::from_frames_at(&frames, FB_PATCH_MSB);
 
+        // Per-block breakdown of expected undocumented padding:
+        //  - block 0x00 ×  8: EXP SW (4) + GK S1 (4) placeholder rows.
+        //  - block 0x01 ×  4: GK S2 reserved bytes preceding Assign 1.
+        //  - block 0x02 ×  8: assorted FloorBoard-empty rows (0x2F,
+        //    0x41, 0x48..=0x4D).
+        //  - block 0x05 × 18: entire "blank nul" reserved block.
+        //  - block 0x07 × 32: MOD tail padding (0x5D..=0x7C).
+        //  - block 0x20 × 18: PCM 1 tail padding (0x17..=0x22 + 6 more).
+        //  - block 0x21 × 18: PCM 2 tail padding, mirror of above.
+        // Total: 106 ... minus 12 PCM string-level bytes now typed = 94.
+        let mut by_block: std::collections::BTreeMap<u8, usize> = std::collections::BTreeMap::new();
+        let mut sorted: Vec<_> = area.unknown_bytes.iter().collect();
+        sorted.sort_by(|a, b| a.0.cmp(b.0));
+        for (addr, _) in &sorted {
+            let block = u8::from_str_radix(&addr[..2], 16).unwrap();
+            *by_block.entry(block).or_default() += 1;
+        }
         eprintln!(
             "FloorBoard default patch: {} frames, PatchArea.unknown_bytes count = {}",
             frames.len(),
             area.unknown_bytes.len(),
         );
-        let mut sorted: Vec<_> = area.unknown_bytes.iter().collect();
-        sorted.sort_by(|a, b| a.0.cmp(b.0));
-        for (addr, b) in sorted.iter().take(60) {
+        for (block, n) in &by_block {
+            eprintln!("  block 0x{block:02X}: {n} bytes");
+        }
+        for (addr, b) in &sorted {
             eprintln!("  {addr} = 0x{b:02X}");
         }
-        if sorted.len() > 60 {
-            eprintln!("  ... ({} more)", sorted.len() - 60);
-        }
+        assert_eq!(
+            area.unknown_bytes.len(),
+            94,
+            "FloorBoard default patch should leave exactly 94 undocumented \
+             padding bytes in unknown_bytes; any new typed-coverage commit \
+             should reduce this and update the assertion"
+        );
     }
 }
