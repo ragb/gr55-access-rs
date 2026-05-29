@@ -1053,6 +1053,47 @@ impl Mfx {
         self.mfx_type
     }
 
+    /// Iterate only the bytes that this MFX holds for the currently
+    /// **active** effect type (the one selected by `mfx_type` at offset
+    /// `0x05`), plus the always-present common header. Returns nothing if
+    /// `mfx_type` isn't set.
+    ///
+    /// This is the editor-friendly view: when the user has picked
+    /// `Type = SuperFilter`, they want to see Chorus Send + Delay Send +
+    /// Reverb Send + Switch + Type + Pan + the 13 Super-Filter
+    /// parameters — not the inert bytes belonging to other 19 effect
+    /// types that happen to round-trip through `raw_tail`.
+    pub fn iter_active_type_params(
+        &self,
+    ) -> impl Iterator<Item = (u16, u8, &'static crate::mfx_params::MfxParamEntry)> + '_ {
+        let active = self.mfx_type.map(map_mfx_type_to_owner);
+        self.iter_params().filter(move |(_, _, entry)| match active {
+            Some(ty) => entry.owning_type.is_none() || entry.owning_type == Some(ty),
+            None => entry.owning_type.is_none(),
+        })
+    }
+
+    /// Iterate only the common-header bytes (those with no `owning_type`
+    /// — sends, switch, type, pan, plus FloorBoard's "reserved" byte).
+    pub fn iter_common_params(
+        &self,
+    ) -> impl Iterator<Item = (u16, u8, &'static crate::mfx_params::MfxParamEntry)> + '_ {
+        self.iter_params()
+            .filter(|(_, _, entry)| entry.owning_type.is_none())
+    }
+
+    /// Iterate only the bytes owned by a specific effect type. Useful for
+    /// "what's stored under Phaser even though the active type is
+    /// Equalizer?" — the GR-55 preserves all 20 types' parameters on
+    /// disk; switching types just changes which range the device uses.
+    pub fn iter_type_params(
+        &self,
+        owner: crate::mfx_params::MfxTypeOwner,
+    ) -> impl Iterator<Item = (u16, u8, &'static crate::mfx_params::MfxParamEntry)> + '_ {
+        self.iter_params()
+            .filter(move |(_, _, entry)| entry.owning_type == Some(owner))
+    }
+
     /// Iterate every (linear, byte, param_entry) triple this MFX holds —
     /// typed fields plus raw_tail bytes — paired with their FloorBoard
     /// metadata. Useful for editors that want to render every parameter
@@ -1086,6 +1127,36 @@ impl Mfx {
             .chain(self.raw_tail.iter().map(|(&lin, &b)| {
                 (lin, b, &crate::mfx_params::MFX_PARAMS[lin as usize])
             }))
+    }
+}
+
+/// Bridge `patch::MfxType` (the on-wire effect type enum) to
+/// `mfx_params::MfxTypeOwner` (the build-time table's enum). Same 20
+/// variants in the same order; we keep them as distinct types so the
+/// generated table can evolve independently of the typed Patch model.
+pub(crate) fn map_mfx_type_to_owner(ty: MfxType) -> crate::mfx_params::MfxTypeOwner {
+    use crate::mfx_params::MfxTypeOwner;
+    match ty {
+        MfxType::Equalizer => MfxTypeOwner::Equalizer,
+        MfxType::SuperFilter => MfxTypeOwner::SuperFilter,
+        MfxType::Phaser => MfxTypeOwner::Phaser,
+        MfxType::StepPhaser => MfxTypeOwner::StepPhaser,
+        MfxType::RingModulator => MfxTypeOwner::RingModulator,
+        MfxType::Tremolo => MfxTypeOwner::Tremolo,
+        MfxType::AutoPan => MfxTypeOwner::AutoPan,
+        MfxType::Slicer => MfxTypeOwner::Slicer,
+        MfxType::VkRotary => MfxTypeOwner::VkRotary,
+        MfxType::HexaChorus => MfxTypeOwner::HexaChorus,
+        MfxType::SpaceD => MfxTypeOwner::SpaceD,
+        MfxType::Flanger => MfxTypeOwner::Flanger,
+        MfxType::StepFlanger => MfxTypeOwner::StepFlanger,
+        MfxType::GuitarAmpSim => MfxTypeOwner::GuitarAmpSim,
+        MfxType::Compressor => MfxTypeOwner::Compressor,
+        MfxType::Limiter => MfxTypeOwner::Limiter,
+        MfxType::ThreeTapPanDelay => MfxTypeOwner::ThreeTapPanDelay,
+        MfxType::TimeCtrlDelay => MfxTypeOwner::TimeCtrlDelay,
+        MfxType::LofiCompressor => MfxTypeOwner::LofiCompressor,
+        MfxType::PitchShifter => MfxTypeOwner::PitchShifter,
     }
 }
 
@@ -5947,6 +6018,48 @@ mod tests {
 
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
+    }
+
+    #[test]
+    fn mfx_iter_active_type_includes_common_and_owning_type_bytes() {
+        // Set active type = SuperFilter, populate a SuperFilter-owned byte
+        // (linear 0x12 = "Super Filter Type") and a Phaser-owned byte
+        // (linear 0x1F = "Phaser Mode") that's NOT the active type. The
+        // active filter should include common header bytes + the SF byte,
+        // but exclude the Phaser byte.
+        let mut mfx = Mfx {
+            mfx_type: Some(MfxType::SuperFilter),
+            switch: Some(OnOff::On),
+            chorus_send: Some(30),
+            ..Mfx::default()
+        };
+        mfx.raw_tail.insert(0x12, 0x01); // Super Filter Type
+        mfx.raw_tail.insert(0x1F, 0x00); // Phaser Mode (inert at this active type)
+
+        let active: Vec<_> = mfx.iter_active_type_params().collect();
+        let active_offsets: std::collections::BTreeSet<u16> =
+            active.iter().map(|(off, _, _)| *off).collect();
+        // Common header bytes present.
+        assert!(active_offsets.contains(&0x00)); // chorus_send
+        assert!(active_offsets.contains(&0x04)); // switch
+        assert!(active_offsets.contains(&0x05)); // mfx_type
+        // Super Filter byte present.
+        assert!(active_offsets.contains(&0x12));
+        // Phaser byte EXCLUDED.
+        assert!(!active_offsets.contains(&0x1F));
+
+        // iter_type_params for Phaser yields only the Phaser byte.
+        let phaser: Vec<_> = mfx
+            .iter_type_params(crate::mfx_params::MfxTypeOwner::Phaser)
+            .collect();
+        assert_eq!(phaser.len(), 1);
+        assert_eq!(phaser[0].0, 0x1F);
+
+        // iter_common_params yields only the common-header bytes.
+        let common: Vec<_> = mfx.iter_common_params().collect();
+        for (_, _, entry) in &common {
+            assert!(entry.owning_type.is_none());
+        }
     }
 
     #[test]
