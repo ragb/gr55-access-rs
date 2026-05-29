@@ -80,6 +80,15 @@ jobs:
             gr55-wasm-node.tar.gz
             gr55-wasm/pkg/patch.schema.json
             gr55-wasm/pkg/system.schema.json
+      # Flat copy of the web-target pkg/ directory, named to match the
+      # `gh run download -n <name>` convention used by sibling repos
+      # (re202-wasm-pkg, ml10x-wasm-pkg). Lets editor consumers drop the
+      # extracted files straight into `vendor/wasm/gr55/`.
+      - name: Upload flat pkg artifact (web target)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gr55-wasm-pkg
+          path: gr55-wasm/pkg/
       # Release-scoped artifacts — published only on version tags so
       # external CI pipelines can curl them at a stable URL like
       # `https://github.com/<owner>/<repo>/releases/download/v0.1.0/gr55-wasm-web.tar.gz`.
