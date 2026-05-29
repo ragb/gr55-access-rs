@@ -1100,6 +1100,141 @@ fn mfx_address_split(linear: u16) -> (u8, u8) {
     }
 }
 
+/// The Patch's single MOD slot. Lives entirely on page `0x07` at offsets
+/// `0x11..=0x7F`. The 7 common header bytes (sends, switch, type, pan,
+/// and an undocumented `null_14` byte) are typed; the type-specific
+/// tail at `0x18..=0x59` is parked in `raw_tail` keyed by page offset.
+/// Looking offsets up against [`crate::mod_params::MOD_PARAMS`] gives
+/// the parameter name and owning effect type — all 14 MOD types have
+/// disjoint byte ranges per the build-time verification.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Mod {
+    /// Amp/Mod Chorus Send at `0x07:00:11` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chorus_send: Option<u8>,
+    /// Amp/Mod Delay Send at `0x07:00:12`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay_send: Option<u8>,
+    /// Amp/Mod Reverb Send at `0x07:00:13`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reverb_send: Option<u8>,
+    /// FloorBoard labels `0x07:00:14` as `customdesc="null"` with full
+    /// 0..=255 range. Round-tripped as raw u8.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub null_14: Option<u8>,
+    /// MOD switch at `0x07:00:15`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub switch: Option<OnOff>,
+    /// MOD effect type at `0x07:00:16` (14 variants).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mod_type: Option<ModType>,
+    /// MOD Pan at `0x07:00:17` (raw 0..=100, L50..R50).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pan: Option<u8>,
+    /// Type-specific tail at `0x07:00:18..=59`, keyed by page offset.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub raw_tail: BTreeMap<u8, u8>,
+}
+
+impl Mod {
+    /// Try to absorb a single byte at page-0x07 offset `off`. Returns
+    /// false if the byte hit a typed slot but failed validation.
+    fn store_byte(&mut self, off: u8, b: u8) -> bool {
+        match off {
+            0x11 if b <= 100 => {
+                self.chorus_send = Some(b);
+                true
+            }
+            0x12 if b <= 100 => {
+                self.delay_send = Some(b);
+                true
+            }
+            0x13 if b <= 100 => {
+                self.reverb_send = Some(b);
+                true
+            }
+            0x14 => {
+                self.null_14 = Some(b);
+                true
+            }
+            0x15 => match OnOff::from_byte(b) {
+                Some(v) => {
+                    self.switch = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x16 => match ModType::from_byte(b) {
+                Some(v) => {
+                    self.mod_type = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x17 if b <= 100 => {
+                self.pan = Some(b);
+                true
+            }
+            // Type-specific tail. Per crate::mod_params, MOD's 14 effect
+            // types own disjoint byte ranges in 0x18..=0x59.
+            0x18..=0x59 => {
+                self.raw_tail.insert(off, b);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn emit_bytes(&self, bytes: &mut BTreeMap<[u8; 4], u8>, base_msb: u8) {
+        macro_rules! put {
+            ($off:expr, $val:expr) => {
+                if let Some(v) = $val {
+                    bytes.insert([base_msb, 0x07, 0x00, $off], v);
+                }
+            };
+        }
+        put!(0x11, self.chorus_send);
+        put!(0x12, self.delay_send);
+        put!(0x13, self.reverb_send);
+        put!(0x14, self.null_14);
+        put!(0x15, self.switch.map(OnOff::to_byte));
+        put!(0x16, self.mod_type.map(ModType::to_byte));
+        put!(0x17, self.pan);
+        for (off, b) in &self.raw_tail {
+            bytes.insert([base_msb, 0x07, 0x00, *off], *b);
+        }
+    }
+
+    /// Convenience accessor for the active MOD effect type.
+    pub fn active_type(&self) -> Option<ModType> {
+        self.mod_type
+    }
+
+    /// Iterate every (offset, byte, ModParamEntry) the slot holds — typed
+    /// fields plus raw_tail bytes — paired with their FloorBoard metadata.
+    pub fn iter_params(
+        &self,
+    ) -> impl Iterator<Item = (u8, u8, &'static crate::mod_params::ParamEntry)> + '_ {
+        let typed = [
+            (0x11_u8, self.chorus_send),
+            (0x12, self.delay_send),
+            (0x13, self.reverb_send),
+            (0x14, self.null_14),
+            (0x15, self.switch.map(OnOff::to_byte)),
+            (0x16, self.mod_type.map(ModType::to_byte)),
+            (0x17, self.pan),
+        ];
+        typed
+            .into_iter()
+            .filter_map(|(off, v)| v.map(|b| (off, b, &crate::mod_params::MOD_PARAMS[off as usize])))
+            .chain(
+                self.raw_tail
+                    .iter()
+                    .map(|(&off, &b)| (off, b, &crate::mod_params::MOD_PARAMS[off as usize])),
+            )
+    }
+}
+
 /// Linear PCM tone index (0..=909) for the 910 named tones in the GR-55
 /// catalog.
 ///
@@ -3650,30 +3785,14 @@ pub struct PatchArea {
     /// Microphone level at `0x07:00:10` (raw 0..=100).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mic_level: Option<u8>,
-    /// MOD: Amp/Mod Chorus Send at `0x07:00:11` (raw 0..=100).
+    /// The single MOD slot. Holds the typed common header at page `0x07`
+    /// offsets `0x11..=0x17` (sends, switch, type, pan) plus a
+    /// per-effect-type tail at `0x18..=0x59` parked in `Mod::raw_tail`
+    /// keyed by offset. Per [`crate::mod_params`] the 14 MOD effect
+    /// types own disjoint byte ranges within that tail, so the table is
+    /// a build-time-verified parameter label/owner lookup.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mod_chorus_send: Option<u8>,
-    /// MOD: Amp/Mod Delay Send at `0x07:00:12`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mod_delay_send: Option<u8>,
-    /// MOD: Amp/Mod Reverb Send at `0x07:00:13`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mod_reverb_send: Option<u8>,
-    /// FloorBoard labels `0x07:00:14` as `customdesc="null"` with full
-    /// 0..=255 range. Round-tripped as raw u8.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mod_null_14: Option<u8>,
-    /// MOD switch at `0x07:00:15`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mod_switch: Option<OnOff>,
-    /// MOD effect type at `0x07:00:16`. Determines what the bytes at
-    /// `0x07:00:18..=7F` mean — those land in `unknown_bytes` until a
-    /// follow-up commit adds per-type sum modelling.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mod_type: Option<ModType>,
-    /// MOD Pan at `0x07:00:17` (raw 0..=100, L50..R50).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mod_pan: Option<u8>,
+    pub modulation: Option<Mod>,
 
     // ---- Page 0x10: Modeling common header (offsets 0x00..=0x1D) ----
     // The type-specific tail at 0x1E..=0x7F (and all of page 0x11) falls
@@ -4067,13 +4186,12 @@ impl PatchArea {
             (0x07, 0x00, 0x0E) => self.mic_distance = MicDistance::from_byte(b),
             (0x07, 0x00, 0x0F) if b <= 10 => self.mic_position = Some(b),
             (0x07, 0x00, 0x10) if b <= 100 => self.mic_level = Some(b),
-            (0x07, 0x00, 0x11) if b <= 100 => self.mod_chorus_send = Some(b),
-            (0x07, 0x00, 0x12) if b <= 100 => self.mod_delay_send = Some(b),
-            (0x07, 0x00, 0x13) if b <= 100 => self.mod_reverb_send = Some(b),
-            (0x07, 0x00, 0x14) => self.mod_null_14 = Some(b),
-            (0x07, 0x00, 0x15) => self.mod_switch = OnOff::from_byte(b),
-            (0x07, 0x00, 0x16) => self.mod_type = ModType::from_byte(b),
-            (0x07, 0x00, 0x17) if b <= 100 => self.mod_pan = Some(b),
+            (0x07, 0x00, off @ 0x11..=0x59) => {
+                let modu = self.modulation.get_or_insert_with(Mod::default);
+                if !modu.store_byte(off, b) {
+                    self.unknown_bytes.insert(format_key(page, hi, lo), b);
+                }
+            }
             // Page 0x10: Modeling common header.
             (0x10, 0x00, 0x00) => self.gm_category = GuitarModeCategory::from_byte(b),
             (0x10, 0x00, 0x01) => self.gm_egtr_type = GmEGuitarType::from_byte(b),
@@ -4708,26 +4826,8 @@ impl PatchArea {
         if let Some(v) = self.mic_level {
             bytes.insert([base_msb, 0x07, 0x00, 0x10], v);
         }
-        if let Some(v) = self.mod_chorus_send {
-            bytes.insert([base_msb, 0x07, 0x00, 0x11], v);
-        }
-        if let Some(v) = self.mod_delay_send {
-            bytes.insert([base_msb, 0x07, 0x00, 0x12], v);
-        }
-        if let Some(v) = self.mod_reverb_send {
-            bytes.insert([base_msb, 0x07, 0x00, 0x13], v);
-        }
-        if let Some(v) = self.mod_null_14 {
-            bytes.insert([base_msb, 0x07, 0x00, 0x14], v);
-        }
-        if let Some(v) = self.mod_switch {
-            bytes.insert([base_msb, 0x07, 0x00, 0x15], v.to_byte());
-        }
-        if let Some(v) = self.mod_type {
-            bytes.insert([base_msb, 0x07, 0x00, 0x16], v.to_byte());
-        }
-        if let Some(v) = self.mod_pan {
-            bytes.insert([base_msb, 0x07, 0x00, 0x17], v);
+        if let Some(modu) = &self.modulation {
+            modu.emit_bytes(&mut bytes, base_msb);
         }
         // Page 0x10: Modeling common header
         if let Some(v) = self.gm_category {
@@ -5633,19 +5733,57 @@ mod tests {
         assert_eq!(area.mic_distance, Some(MicDistance::OnMic));
         assert_eq!(area.mic_position, Some(3));
         assert_eq!(area.mic_level, Some(85));
-        assert_eq!(area.mod_chorus_send, Some(40));
-        assert_eq!(area.mod_delay_send, Some(35));
-        assert_eq!(area.mod_reverb_send, Some(30));
-        assert_eq!(area.mod_null_14, Some(0xCC));
-        assert_eq!(area.mod_switch, Some(OnOff::On));
-        assert_eq!(area.mod_type, Some(ModType::Phaser));
-        assert_eq!(area.mod_pan, Some(50));
-        // MOD-type tail preserved in unknown_bytes.
-        assert_eq!(area.unknown_bytes.get("07:00:18"), Some(&0xE1));
-        assert_eq!(area.unknown_bytes.get("07:00:1B"), Some(&0xE4));
+        let modu = area
+            .modulation
+            .as_ref()
+            .expect("modulation slot should populate");
+        assert_eq!(modu.chorus_send, Some(40));
+        assert_eq!(modu.delay_send, Some(35));
+        assert_eq!(modu.reverb_send, Some(30));
+        assert_eq!(modu.null_14, Some(0xCC));
+        assert_eq!(modu.switch, Some(OnOff::On));
+        assert_eq!(modu.mod_type, Some(ModType::Phaser));
+        assert_eq!(modu.pan, Some(50));
+        // MOD-type tail preserved in modulation.raw_tail keyed by offset.
+        assert_eq!(modu.raw_tail.get(&0x18), Some(&0xE1));
+        assert_eq!(modu.raw_tail.get(&0x1B), Some(&0xE4));
 
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
+    }
+
+    #[test]
+    fn mod_iter_params_pairs_bytes_with_mod_params_table() {
+        // Set the type to Wah, populate one byte from Wah's range
+        // (0x1F = "Wah Sens"), confirm iter_params yields the typed
+        // header bytes plus the raw_tail byte, each with its label.
+        let mut modu = Mod {
+            mod_type: Some(ModType::Wah),
+            switch: Some(OnOff::On),
+            ..Mod::default()
+        };
+        modu.raw_tail.insert(0x1F, 0x40);
+
+        let collected: Vec<_> = modu.iter_params().collect();
+        let by_offset: std::collections::BTreeMap<u8, (u8, &str, Option<crate::mod_params::ModTypeOwner>)> =
+            collected
+                .iter()
+                .map(|(off, b, entry)| (*off, (*b, entry.name, entry.owning_type)))
+                .collect();
+
+        // Common header bytes carry no owning type.
+        assert_eq!(
+            by_offset.get(&0x15).map(|x| x.2),
+            Some(None),
+            "switch byte 0x15 should have no owning type"
+        );
+        // Type byte at 0x16 likewise (the selector itself).
+        assert_eq!(by_offset.get(&0x16).map(|x| x.2), Some(None));
+        // Wah Sens at 0x1F is owned by Wah.
+        let wah_sens = by_offset.get(&0x1F).expect("0x1F should be present");
+        assert_eq!(wah_sens.0, 0x40);
+        assert_eq!(wah_sens.2, Some(crate::mod_params::ModTypeOwner::Wah));
+        assert!(wah_sens.1.contains("Sens"));
     }
 
     #[test]
