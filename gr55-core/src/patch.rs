@@ -1039,6 +1039,353 @@ fn all_mfx_none(arr: &[Option<Mfx>; 2]) -> bool {
     arr.iter().all(Option::is_none)
 }
 
+/// PreAmp model at page `0x07` offset `0x01`. 42 variants — all the
+/// classic-amp emulations the GR-55 ships with, grouped into named
+/// families (JC Clean, TW Clean, Crunch, Combo, Match, BG Lead, MS
+/// Classic, MS Modern, R-Fier, T-Amp, HI-Gain, METAL, Bass). Mined
+/// from FloorBoard `midi.xml:43069-43111`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreampType {
+    BossClean,
+    Jc120,
+    JazzCombo,
+    FullRange,
+    CleanTwin,
+    ProCrunch,
+    Tweed,
+    DeluxCrunch,
+    BossCrunch,
+    Blues,
+    WildCrunch,
+    StackCrunch,
+    VoDrive,
+    VoLead,
+    VoClean,
+    MatchDrive,
+    FatMatch,
+    MatchLead,
+    BgLead,
+    BgDrive,
+    BgRhythm,
+    Ms1959I,
+    Ms1959IPlusII,
+    MsHiGain,
+    MsScoop,
+    RFierVintage,
+    RFierModern,
+    RFierClean,
+    TAmpLead,
+    TAmpCrunch,
+    TAmpClean,
+    BossDrive,
+    Sldn,
+    LeadStack,
+    HeavyLead,
+    BossMetal,
+    Drive5150,
+    MetalLead,
+    EdgeLead,
+    BassClean,
+    BassCrunch,
+    BassHiGain,
+}
+
+impl PreampType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use PreampType::*;
+        Some(match b {
+            0x00 => BossClean,
+            0x01 => Jc120,
+            0x02 => JazzCombo,
+            0x03 => FullRange,
+            0x04 => CleanTwin,
+            0x05 => ProCrunch,
+            0x06 => Tweed,
+            0x07 => DeluxCrunch,
+            0x08 => BossCrunch,
+            0x09 => Blues,
+            0x0A => WildCrunch,
+            0x0B => StackCrunch,
+            0x0C => VoDrive,
+            0x0D => VoLead,
+            0x0E => VoClean,
+            0x0F => MatchDrive,
+            0x10 => FatMatch,
+            0x11 => MatchLead,
+            0x12 => BgLead,
+            0x13 => BgDrive,
+            0x14 => BgRhythm,
+            0x15 => Ms1959I,
+            0x16 => Ms1959IPlusII,
+            0x17 => MsHiGain,
+            0x18 => MsScoop,
+            0x19 => RFierVintage,
+            0x1A => RFierModern,
+            0x1B => RFierClean,
+            0x1C => TAmpLead,
+            0x1D => TAmpCrunch,
+            0x1E => TAmpClean,
+            0x1F => BossDrive,
+            0x20 => Sldn,
+            0x21 => LeadStack,
+            0x22 => HeavyLead,
+            0x23 => BossMetal,
+            0x24 => Drive5150,
+            0x25 => MetalLead,
+            0x26 => EdgeLead,
+            0x27 => BassClean,
+            0x28 => BassCrunch,
+            0x29 => BassHiGain,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use PreampType::*;
+        match self {
+            BossClean => 0x00,
+            Jc120 => 0x01,
+            JazzCombo => 0x02,
+            FullRange => 0x03,
+            CleanTwin => 0x04,
+            ProCrunch => 0x05,
+            Tweed => 0x06,
+            DeluxCrunch => 0x07,
+            BossCrunch => 0x08,
+            Blues => 0x09,
+            WildCrunch => 0x0A,
+            StackCrunch => 0x0B,
+            VoDrive => 0x0C,
+            VoLead => 0x0D,
+            VoClean => 0x0E,
+            MatchDrive => 0x0F,
+            FatMatch => 0x10,
+            MatchLead => 0x11,
+            BgLead => 0x12,
+            BgDrive => 0x13,
+            BgRhythm => 0x14,
+            Ms1959I => 0x15,
+            Ms1959IPlusII => 0x16,
+            MsHiGain => 0x17,
+            MsScoop => 0x18,
+            RFierVintage => 0x19,
+            RFierModern => 0x1A,
+            RFierClean => 0x1B,
+            TAmpLead => 0x1C,
+            TAmpCrunch => 0x1D,
+            TAmpClean => 0x1E,
+            BossDrive => 0x1F,
+            Sldn => 0x20,
+            LeadStack => 0x21,
+            HeavyLead => 0x22,
+            BossMetal => 0x23,
+            Drive5150 => 0x24,
+            MetalLead => 0x25,
+            EdgeLead => 0x26,
+            BassClean => 0x27,
+            BassCrunch => 0x28,
+            BassHiGain => 0x29,
+        }
+    }
+}
+
+/// PreAmp Gain switch at page `0x07` offset `0x04`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreampGainSw {
+    Low,
+    Middle,
+    High,
+}
+
+impl PreampGainSw {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Low),
+            0x01 => Some(Self::Middle),
+            0x02 => Some(Self::High),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::Low => 0x00,
+            Self::Middle => 0x01,
+            Self::High => 0x02,
+        }
+    }
+}
+
+/// Speaker simulator cabinet at page `0x07` offset `0x0C`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpeakerType {
+    Off,
+    Original,
+    OneByEight,
+    OneByTen,
+    OneByTwelve,
+    TwoByTwelve,
+    FourByTen,
+    FourByTwelve,
+    EightByTwelve,
+}
+
+impl SpeakerType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use SpeakerType::*;
+        Some(match b {
+            0x00 => Off,
+            0x01 => Original,
+            0x02 => OneByEight,
+            0x03 => OneByTen,
+            0x04 => OneByTwelve,
+            0x05 => TwoByTwelve,
+            0x06 => FourByTen,
+            0x07 => FourByTwelve,
+            0x08 => EightByTwelve,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use SpeakerType::*;
+        match self {
+            Off => 0x00,
+            Original => 0x01,
+            OneByEight => 0x02,
+            OneByTen => 0x03,
+            OneByTwelve => 0x04,
+            TwoByTwelve => 0x05,
+            FourByTen => 0x06,
+            FourByTwelve => 0x07,
+            EightByTwelve => 0x08,
+        }
+    }
+}
+
+/// Microphone model at page `0x07` offset `0x0D`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MicType {
+    Dyn57,
+    Dyn421,
+    Cnd451,
+    Cnd87,
+    Flat,
+}
+
+impl MicType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use MicType::*;
+        Some(match b {
+            0x00 => Dyn57,
+            0x01 => Dyn421,
+            0x02 => Cnd451,
+            0x03 => Cnd87,
+            0x04 => Flat,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use MicType::*;
+        match self {
+            Dyn57 => 0x00,
+            Dyn421 => 0x01,
+            Cnd451 => 0x02,
+            Cnd87 => 0x03,
+            Flat => 0x04,
+        }
+    }
+}
+
+/// Microphone distance (off-mic / on-mic) at page `0x07` offset `0x0E`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MicDistance {
+    OffMic,
+    OnMic,
+}
+
+impl MicDistance {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::OffMic),
+            0x01 => Some(Self::OnMic),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::OffMic => 0x00,
+            Self::OnMic => 0x01,
+        }
+    }
+}
+
+/// MOD effect type at page `0x07` offset `0x16`. 14 variants determining
+/// what the bytes at `0x18..=0x7F` mean. Mined from FloorBoard
+/// `midi.xml:43221-43236`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModType {
+    Distortion,
+    Wah,
+    Compressor,
+    Limiter,
+    Octave,
+    Phaser,
+    Flanger,
+    Tremolo,
+    Rotary,
+    UniVibe,
+    Panner,
+    Delay,
+    Chorus,
+    Equalizer,
+}
+
+impl ModType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use ModType::*;
+        Some(match b {
+            0x00 => Distortion,
+            0x01 => Wah,
+            0x02 => Compressor,
+            0x03 => Limiter,
+            0x04 => Octave,
+            0x05 => Phaser,
+            0x06 => Flanger,
+            0x07 => Tremolo,
+            0x08 => Rotary,
+            0x09 => UniVibe,
+            0x0A => Panner,
+            0x0B => Delay,
+            0x0C => Chorus,
+            0x0D => Equalizer,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use ModType::*;
+        match self {
+            Distortion => 0x00,
+            Wah => 0x01,
+            Compressor => 0x02,
+            Limiter => 0x03,
+            Octave => 0x04,
+            Phaser => 0x05,
+            Flanger => 0x06,
+            Tremolo => 0x07,
+            Rotary => 0x08,
+            UniVibe => 0x09,
+            Panner => 0x0A,
+            Delay => 0x0B,
+            Chorus => 0x0C,
+            Equalizer => 0x0D,
+        }
+    }
+}
+
 /// Chorus algorithm at page `0x06` offset `0x01`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -2540,6 +2887,85 @@ pub struct PatchArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub patch_eq_character: Option<PatchEqCharacter>,
 
+    // ---- Page 0x07: PreAmp/Speaker (0x00..=0x10) + MOD header (0x11..=0x17) ----
+    // The MOD-type-dependent tail at 0x18..=0x7F falls through to
+    // unknown_bytes pending sum-type modelling, like the MFX tail.
+    /// PreAmp switch at `0x07:00:00`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamp_switch: Option<OnOff>,
+    /// PreAmp model at `0x07:00:01`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamp_type: Option<PreampType>,
+    /// PreAmp Gain at `0x07:00:02` (raw 0..=120).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamp_gain: Option<u8>,
+    /// PreAmp Level at `0x07:00:03` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamp_level: Option<u8>,
+    /// PreAmp Gain switch at `0x07:00:04`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamp_gain_sw: Option<PreampGainSw>,
+    /// PreAmp Solo switch at `0x07:00:05`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamp_solo_sw: Option<OnOff>,
+    /// PreAmp Solo Level at `0x07:00:06` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamp_solo_level: Option<u8>,
+    /// PreAmp Bass at `0x07:00:07` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamp_bass: Option<u8>,
+    /// PreAmp Middle at `0x07:00:08`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamp_middle: Option<u8>,
+    /// PreAmp Treble at `0x07:00:09`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamp_treble: Option<u8>,
+    /// PreAmp Presence at `0x07:00:0A`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamp_presence: Option<u8>,
+    /// PreAmp Bright switch at `0x07:00:0B`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamp_bright_sw: Option<OnOff>,
+    /// Speaker simulator cabinet at `0x07:00:0C`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speaker_type: Option<SpeakerType>,
+    /// Microphone model at `0x07:00:0D`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mic_type: Option<MicType>,
+    /// Microphone distance at `0x07:00:0E`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mic_distance: Option<MicDistance>,
+    /// Microphone position at `0x07:00:0F` (raw 0 = Center, 1..=10 = 1..=10cm).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mic_position: Option<u8>,
+    /// Microphone level at `0x07:00:10` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mic_level: Option<u8>,
+    /// MOD: Amp/Mod Chorus Send at `0x07:00:11` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mod_chorus_send: Option<u8>,
+    /// MOD: Amp/Mod Delay Send at `0x07:00:12`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mod_delay_send: Option<u8>,
+    /// MOD: Amp/Mod Reverb Send at `0x07:00:13`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mod_reverb_send: Option<u8>,
+    /// FloorBoard labels `0x07:00:14` as `customdesc="null"` with full
+    /// 0..=255 range. Round-tripped as raw u8.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mod_null_14: Option<u8>,
+    /// MOD switch at `0x07:00:15`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mod_switch: Option<OnOff>,
+    /// MOD effect type at `0x07:00:16`. Determines what the bytes at
+    /// `0x07:00:18..=7F` mean — those land in `unknown_bytes` until a
+    /// follow-up commit adds per-type sum modelling.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mod_type: Option<ModType>,
+    /// MOD Pan at `0x07:00:17` (raw 0..=100, L50..R50).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mod_pan: Option<u8>,
+
     /// Everything inside the patch payload that the typed model doesn't yet
     /// cover. Keys are formatted `"PP:HH:LL"` — page byte, then the two
     /// in-page offset bytes.
@@ -2840,6 +3266,31 @@ impl PatchArea {
             (0x06, 0x00, 0x1B) if b <= 0x28 => self.patch_eq_high_gain = Some(b),
             (0x06, 0x00, 0x1C) if b <= 0x28 => self.patch_eq_level = Some(b),
             (0x06, 0x00, 0x1D) => self.patch_eq_character = PatchEqCharacter::from_byte(b),
+            // Page 0x07: PreAmp/Speaker + MOD header.
+            (0x07, 0x00, 0x00) => self.preamp_switch = OnOff::from_byte(b),
+            (0x07, 0x00, 0x01) => self.preamp_type = PreampType::from_byte(b),
+            (0x07, 0x00, 0x02) if b <= 120 => self.preamp_gain = Some(b),
+            (0x07, 0x00, 0x03) if b <= 100 => self.preamp_level = Some(b),
+            (0x07, 0x00, 0x04) => self.preamp_gain_sw = PreampGainSw::from_byte(b),
+            (0x07, 0x00, 0x05) => self.preamp_solo_sw = OnOff::from_byte(b),
+            (0x07, 0x00, 0x06) if b <= 100 => self.preamp_solo_level = Some(b),
+            (0x07, 0x00, 0x07) if b <= 100 => self.preamp_bass = Some(b),
+            (0x07, 0x00, 0x08) if b <= 100 => self.preamp_middle = Some(b),
+            (0x07, 0x00, 0x09) if b <= 100 => self.preamp_treble = Some(b),
+            (0x07, 0x00, 0x0A) if b <= 100 => self.preamp_presence = Some(b),
+            (0x07, 0x00, 0x0B) => self.preamp_bright_sw = OnOff::from_byte(b),
+            (0x07, 0x00, 0x0C) => self.speaker_type = SpeakerType::from_byte(b),
+            (0x07, 0x00, 0x0D) => self.mic_type = MicType::from_byte(b),
+            (0x07, 0x00, 0x0E) => self.mic_distance = MicDistance::from_byte(b),
+            (0x07, 0x00, 0x0F) if b <= 10 => self.mic_position = Some(b),
+            (0x07, 0x00, 0x10) if b <= 100 => self.mic_level = Some(b),
+            (0x07, 0x00, 0x11) if b <= 100 => self.mod_chorus_send = Some(b),
+            (0x07, 0x00, 0x12) if b <= 100 => self.mod_delay_send = Some(b),
+            (0x07, 0x00, 0x13) if b <= 100 => self.mod_reverb_send = Some(b),
+            (0x07, 0x00, 0x14) => self.mod_null_14 = Some(b),
+            (0x07, 0x00, 0x15) => self.mod_switch = OnOff::from_byte(b),
+            (0x07, 0x00, 0x16) => self.mod_type = ModType::from_byte(b),
+            (0x07, 0x00, 0x17) if b <= 100 => self.mod_pan = Some(b),
             _ => {
                 self.unknown_bytes.insert(format_key(page, hi, lo), b);
             }
@@ -3386,6 +3837,79 @@ impl PatchArea {
         }
         if let Some(v) = self.patch_eq_character {
             bytes.insert([base_msb, 0x06, 0x00, 0x1D], v.to_byte());
+        }
+        // Page 0x07
+        if let Some(v) = self.preamp_switch {
+            bytes.insert([base_msb, 0x07, 0x00, 0x00], v.to_byte());
+        }
+        if let Some(v) = self.preamp_type {
+            bytes.insert([base_msb, 0x07, 0x00, 0x01], v.to_byte());
+        }
+        if let Some(v) = self.preamp_gain {
+            bytes.insert([base_msb, 0x07, 0x00, 0x02], v);
+        }
+        if let Some(v) = self.preamp_level {
+            bytes.insert([base_msb, 0x07, 0x00, 0x03], v);
+        }
+        if let Some(v) = self.preamp_gain_sw {
+            bytes.insert([base_msb, 0x07, 0x00, 0x04], v.to_byte());
+        }
+        if let Some(v) = self.preamp_solo_sw {
+            bytes.insert([base_msb, 0x07, 0x00, 0x05], v.to_byte());
+        }
+        if let Some(v) = self.preamp_solo_level {
+            bytes.insert([base_msb, 0x07, 0x00, 0x06], v);
+        }
+        if let Some(v) = self.preamp_bass {
+            bytes.insert([base_msb, 0x07, 0x00, 0x07], v);
+        }
+        if let Some(v) = self.preamp_middle {
+            bytes.insert([base_msb, 0x07, 0x00, 0x08], v);
+        }
+        if let Some(v) = self.preamp_treble {
+            bytes.insert([base_msb, 0x07, 0x00, 0x09], v);
+        }
+        if let Some(v) = self.preamp_presence {
+            bytes.insert([base_msb, 0x07, 0x00, 0x0A], v);
+        }
+        if let Some(v) = self.preamp_bright_sw {
+            bytes.insert([base_msb, 0x07, 0x00, 0x0B], v.to_byte());
+        }
+        if let Some(v) = self.speaker_type {
+            bytes.insert([base_msb, 0x07, 0x00, 0x0C], v.to_byte());
+        }
+        if let Some(v) = self.mic_type {
+            bytes.insert([base_msb, 0x07, 0x00, 0x0D], v.to_byte());
+        }
+        if let Some(v) = self.mic_distance {
+            bytes.insert([base_msb, 0x07, 0x00, 0x0E], v.to_byte());
+        }
+        if let Some(v) = self.mic_position {
+            bytes.insert([base_msb, 0x07, 0x00, 0x0F], v);
+        }
+        if let Some(v) = self.mic_level {
+            bytes.insert([base_msb, 0x07, 0x00, 0x10], v);
+        }
+        if let Some(v) = self.mod_chorus_send {
+            bytes.insert([base_msb, 0x07, 0x00, 0x11], v);
+        }
+        if let Some(v) = self.mod_delay_send {
+            bytes.insert([base_msb, 0x07, 0x00, 0x12], v);
+        }
+        if let Some(v) = self.mod_reverb_send {
+            bytes.insert([base_msb, 0x07, 0x00, 0x13], v);
+        }
+        if let Some(v) = self.mod_null_14 {
+            bytes.insert([base_msb, 0x07, 0x00, 0x14], v);
+        }
+        if let Some(v) = self.mod_switch {
+            bytes.insert([base_msb, 0x07, 0x00, 0x15], v.to_byte());
+        }
+        if let Some(v) = self.mod_type {
+            bytes.insert([base_msb, 0x07, 0x00, 0x16], v.to_byte());
+        }
+        if let Some(v) = self.mod_pan {
+            bytes.insert([base_msb, 0x07, 0x00, 0x17], v);
         }
         for (k, b) in &self.unknown_bytes {
             let (page, hi, lo) =
@@ -4177,6 +4701,85 @@ mod tests {
 
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
+    }
+
+    #[test]
+    fn page_07_preamp_and_mod_header_round_trip() {
+        let mut payload: Vec<u8> = vec![
+            OnOff::On.to_byte(),               // 0x00 preamp_switch
+            PreampType::MsHiGain.to_byte(),    // 0x01 preamp_type
+            90,                                // 0x02 preamp_gain
+            80,                                // 0x03 preamp_level
+            PreampGainSw::High.to_byte(),      // 0x04
+            OnOff::Off.to_byte(),              // 0x05 solo_sw
+            50,                                // 0x06 solo_level
+            55,                                // 0x07 bass
+            45,                                // 0x08 middle
+            60,                                // 0x09 treble
+            65,                                // 0x0A presence
+            OnOff::On.to_byte(),               // 0x0B bright_sw
+            SpeakerType::FourByTwelve.to_byte(), // 0x0C
+            MicType::Dyn57.to_byte(),          // 0x0D
+            MicDistance::OnMic.to_byte(),      // 0x0E
+            3,                                 // 0x0F mic_position (3cm)
+            85,                                // 0x10 mic_level
+            40,                                // 0x11 mod_chorus_send
+            35,                                // 0x12 mod_delay_send
+            30,                                // 0x13 mod_reverb_send
+            0xCC,                              // 0x14 mod_null_14
+            OnOff::On.to_byte(),               // 0x15 mod_switch
+            ModType::Phaser.to_byte(),         // 0x16 mod_type
+            50,                                // 0x17 mod_pan (center)
+        ];
+        // Add 4 bytes into the MOD-type-dependent tail to verify they
+        // survive in unknown_bytes (pending sum modelling).
+        payload.extend([0xE1, 0xE2, 0xE3, 0xE4]); // 0x18..=0x1B
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x07, 0x00, 0x00],
+            data: Cow::Owned(payload),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+
+        assert_eq!(area.preamp_switch, Some(OnOff::On));
+        assert_eq!(area.preamp_type, Some(PreampType::MsHiGain));
+        assert_eq!(area.preamp_gain, Some(90));
+        assert_eq!(area.preamp_level, Some(80));
+        assert_eq!(area.preamp_gain_sw, Some(PreampGainSw::High));
+        assert_eq!(area.preamp_solo_sw, Some(OnOff::Off));
+        assert_eq!(area.preamp_solo_level, Some(50));
+        assert_eq!(area.preamp_bass, Some(55));
+        assert_eq!(area.preamp_middle, Some(45));
+        assert_eq!(area.preamp_treble, Some(60));
+        assert_eq!(area.preamp_presence, Some(65));
+        assert_eq!(area.preamp_bright_sw, Some(OnOff::On));
+        assert_eq!(area.speaker_type, Some(SpeakerType::FourByTwelve));
+        assert_eq!(area.mic_type, Some(MicType::Dyn57));
+        assert_eq!(area.mic_distance, Some(MicDistance::OnMic));
+        assert_eq!(area.mic_position, Some(3));
+        assert_eq!(area.mic_level, Some(85));
+        assert_eq!(area.mod_chorus_send, Some(40));
+        assert_eq!(area.mod_delay_send, Some(35));
+        assert_eq!(area.mod_reverb_send, Some(30));
+        assert_eq!(area.mod_null_14, Some(0xCC));
+        assert_eq!(area.mod_switch, Some(OnOff::On));
+        assert_eq!(area.mod_type, Some(ModType::Phaser));
+        assert_eq!(area.mod_pan, Some(50));
+        // MOD-type tail preserved in unknown_bytes.
+        assert_eq!(area.unknown_bytes.get("07:00:18"), Some(&0xE1));
+        assert_eq!(area.unknown_bytes.get("07:00:1B"), Some(&0xE4));
+
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
+    }
+
+    #[test]
+    fn preamp_type_byte_symmetry() {
+        for raw in 0x00_u8..=0x29 {
+            let v = PreampType::from_byte(raw).expect("from_byte");
+            assert_eq!(v.to_byte(), raw, "mismatch for 0x{raw:02X}");
+        }
+        assert!(PreampType::from_byte(0x2A).is_none());
     }
 
     #[test]
