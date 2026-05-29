@@ -340,7 +340,8 @@ mod tests {
 
     #[test]
     fn parse_floorboard_system_syx() {
-        let bytes: &[u8] = include_bytes!("../tests/fixtures/floorboard_system_area.syx");
+        let _fixture_bytes = crate::test_support::fb_fixture_required("system.syx");
+        let bytes: &[u8] = &_fixture_bytes;
         let frames = load_floorboard_fixture(bytes);
         assert!(
             !frames.is_empty(),
@@ -371,7 +372,8 @@ mod tests {
     fn floorboard_system_syx_has_some_bad_checksums() {
         // FloorBoard saves .syx files with checksum errors that it corrects on load
         // (SysxIO.cpp:144). Document the quirk so future fixture changes are caught.
-        let bytes: &[u8] = include_bytes!("../tests/fixtures/floorboard_system_area.syx");
+        let _fixture_bytes = crate::test_support::fb_fixture_required("system.syx");
+        let bytes: &[u8] = &_fixture_bytes;
         let frames = load_floorboard_fixture(bytes);
         let bad = frames.iter().filter(|(_, s)| !s.is_valid()).count();
         assert!(
@@ -382,7 +384,8 @@ mod tests {
 
     #[test]
     fn parse_floorboard_default_patch_syx() {
-        let bytes: &[u8] = include_bytes!("../tests/fixtures/floorboard_default_patch.syx");
+        let _fixture_bytes = crate::test_support::fb_fixture_required("default.syx");
+        let bytes: &[u8] = &_fixture_bytes;
         let frames = load_floorboard_fixture(bytes);
         assert!(
             frames.len() > 1,
@@ -429,7 +432,8 @@ mod tests {
 
     #[test]
     fn parse_floorboard_ez_tone_library_syx() {
-        let bytes: &[u8] = include_bytes!("../tests/fixtures/floorboard_ez_tone_library.syx");
+        let _fixture_bytes = crate::test_support::fb_fixture_required("EZ-Tone.syx");
+        let bytes: &[u8] = &_fixture_bytes;
         let frames = load_floorboard_fixture(bytes);
         assert!(frames.len() > 10, "EZ-Tone library should hold many frames");
         for (frame, _) in &frames {

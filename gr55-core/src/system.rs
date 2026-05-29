@@ -3185,7 +3185,8 @@ mod tests {
 
     #[test]
     fn decodes_floorboard_system_syx_first_frame_as_user_20_1() {
-        let bytes: &[u8] = include_bytes!("../tests/fixtures/floorboard_system_area.syx");
+        let _fixture_bytes = crate::test_support::fb_fixture_required("system.syx");
+        let bytes: &[u8] = &_fixture_bytes;
         let frames: Vec<Frame<'_>> = parse_frames_unchecked(bytes)
             .map(|r| r.unwrap().0)
             .collect();

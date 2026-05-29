@@ -1,19 +1,32 @@
-# NOTICE — vendored FloorBoard fixture data
+# NOTICE — test fixture loading
 
-The `.syx` and `.g5l` files in this directory are copied verbatim from the
-**GR-55 FloorBoard** distribution (Colin Willcocks et al., GPL-2-or-later).
-They are GR-55 SysEx byte streams used by FloorBoard as starting-point
-patches and library data; we reuse them as round-trip test fixtures for
-`gr55-core`'s codec.
+This directory used to vendor a handful of FloorBoard `.syx`/`.g5l`
+fixtures verbatim. They were removed in favor of loading the same
+files at runtime from the `external/floorboard` git submodule (a
+mirror of <https://github.com/motiz88/GR-55Floorboard>). The compiled
+`gr55-core` artifact carries no verbatim FloorBoard data.
 
-| File                              | FloorBoard source name | Purpose                                                                       |
-|-----------------------------------|------------------------|-------------------------------------------------------------------------------|
-| `floorboard_default_patch.syx`    | `default.syx`          | Single default patch (DT1 stream) at MSB `0x18` — live TEMP RAM.              |
-| `floorboard_system_area.syx`      | `system.syx`           | Full GR-55 system area dump, starting at address `01 00 00 00`.               |
-| `floorboard_ez_tone_library.syx`  | `EZ-Tone.syx`          | Multi-patch EZ-Tone preset library (~200 KB of SysEx).                        |
-| `floorboard_default.g5l`          | `default.g5l`          | FloorBoard's own library-file format (wraps multiple patches; not raw SysEx). |
+Tests resolve fixture paths via [`crate::test_support`]:
 
-## Patch address space
+```rust
+let bytes = crate::test_support::fb_fixture_required("default.syx");
+```
+
+The helper joins the relative path against `<workspace>/external/floorboard`.
+If the submodule isn't checked out, `fb_fixture_required` panics with
+a clear "run `git submodule update --init`" diagnostic.
+
+## Fixture map (submodule-relative paths)
+
+| Test usage                              | Submodule path                                        |
+|-----------------------------------------|-------------------------------------------------------|
+| Default-patch round-trip + audit        | `default.syx`                                         |
+| EZ-Tone library per-slot round-trip     | `EZ-Tone.syx`                                         |
+| System-area decoder smoke               | `system.syx`                                          |
+| `.g5l` parser default-patch test        | `default.g5l`                                         |
+| `.g5l` corpus round-trip (~297 patches) | `packager/saved_patches/**/*.g5l`                     |
+
+## Patch address space (kept for cross-reference)
 
 MSB `0x18` targets the GR-55's **live current-patch (TEMP) RAM** —
 writing a DT1 there takes effect immediately, no USER-slot store
@@ -32,6 +45,3 @@ match this crate's typed-field offsets exactly.
 Patch *recall* (vs. write) goes via standard MIDI Program Change + CC#0
 bank select, not DT1 — VController uses
 `MIDI_send_CC(0, patch >> 7); MIDI_send_PC(patch & 0x7F);`.
-
-Source snapshot: `gr55floorboard_source_code.zip` dated 2026-05-08, downloaded
-from https://sourceforge.net/projects/grfloorboard/.

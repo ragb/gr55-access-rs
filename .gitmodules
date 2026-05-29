@@ -1,0 +1,3 @@
+[submodule "external/floorboard"]
+	path = external/floorboard
+	url = https://github.com/motiz88/GR-55Floorboard

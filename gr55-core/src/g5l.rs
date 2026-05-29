@@ -260,8 +260,8 @@ mod tests {
     /// name parses cleanly.
     #[test]
     fn parses_bundled_default_patch() {
-        let bytes: &[u8] = include_bytes!("../tests/fixtures/floorboard_default.g5l");
-        let patches = parse(bytes).expect("parse default.g5l");
+        let bytes = crate::test_support::fb_fixture_required("default.g5l");
+        let patches = parse(&bytes).expect("parse default.g5l");
         assert_eq!(patches.len(), 1, "default.g5l is a single-patch file");
 
         let p = &patches[0];
@@ -346,16 +346,16 @@ mod tests {
     /// every Modeling category, all 20 MFX types, etc.
     #[test]
     fn g5l_round_trips_across_all_bundled_patches() {
-        use std::path::PathBuf;
-
-        let patches_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("docs")
-            .join("spec")
-            .join("floorboard_src")
-            .join("gr55floorboard_source")
+        let patches_dir = crate::test_support::floorboard_root()
             .join("packager")
             .join("saved_patches");
+        if !patches_dir.exists() {
+            panic!(
+                "FloorBoard submodule missing at {}.\n\
+                 Run `git submodule update --init --recursive` from the workspace root.",
+                patches_dir.display()
+            );
+        }
         // Recursively walk subdirectories: saved_patches/ has
         // Guitar Mode/, Bass Mode/, quick_saved/ children.
         fn collect_g5l(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
@@ -440,10 +440,10 @@ mod tests {
         }
 
         assert!(
-            files_scanned >= 700,
-            "expected to scan at least 700 .g5l files (got {files_scanned}) — \
-             is the FloorBoard distribution still vendored at \
-             docs/spec/floorboard_src/...?"
+            files_scanned >= 200,
+            "expected to scan at least 200 .g5l files (got {files_scanned}) — \
+             motiz88/GR-55Floorboard ships ~297 patches at \
+             packager/saved_patches/; check the submodule checkout."
         );
         assert!(
             parse_failures.is_empty(),

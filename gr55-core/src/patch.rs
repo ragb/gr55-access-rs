@@ -6847,7 +6847,8 @@ mod tests {
     /// patch survives a round-trip".
     #[test]
     fn floorboard_ez_tone_library_round_trips_per_slot() {
-        let bytes: &[u8] = include_bytes!("../tests/fixtures/floorboard_ez_tone_library.syx");
+        let _fixture_bytes = crate::test_support::fb_fixture_required("EZ-Tone.syx");
+        let bytes: &[u8] = &_fixture_bytes;
         let mut by_slot: std::collections::BTreeMap<(u8, u8, u8), Vec<Frame<'static>>> =
             std::collections::BTreeMap::new();
         for frame in crate::sysex::parse_frames(bytes).filter_map(|r| r.ok()) {
@@ -6911,7 +6912,8 @@ mod tests {
     #[test]
     fn floorboard_default_patch_round_trips_losslessly() {
         const FB_PATCH_MSB: u8 = 0x18;
-        let bytes: &[u8] = include_bytes!("../tests/fixtures/floorboard_default_patch.syx");
+        let _fixture_bytes = crate::test_support::fb_fixture_required("default.syx");
+        let bytes: &[u8] = &_fixture_bytes;
         let frames: Vec<Frame<'static>> = crate::sysex::parse_frames(bytes)
             .filter_map(|r| r.ok())
             .map(|f| f.into_owned())
@@ -6947,7 +6949,8 @@ mod tests {
     #[test]
     fn floorboard_default_patch_unknown_bytes_audit() {
         const FB_PATCH_MSB: u8 = 0x18;
-        let bytes: &[u8] = include_bytes!("../tests/fixtures/floorboard_default_patch.syx");
+        let _fixture_bytes = crate::test_support::fb_fixture_required("default.syx");
+        let bytes: &[u8] = &_fixture_bytes;
         let frames: Vec<Frame<'static>> = crate::sysex::parse_frames(bytes)
             .filter_map(|r| r.ok())
             .map(|f| f.into_owned())
