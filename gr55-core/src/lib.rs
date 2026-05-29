@@ -8,6 +8,7 @@ pub mod midi_map;
 pub mod mod_params;
 pub(crate) mod mod_tail_serde;
 pub mod modeling_params;
+pub(crate) mod modeling_tail_serde;
 pub mod patch;
 pub mod pcm_tail_params;
 pub(crate) mod pcm_tail_serde;

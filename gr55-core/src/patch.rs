@@ -1379,7 +1379,17 @@ pub struct Modeling {
     /// 0..=127, page 0x11 = 128..=255). Lookups against
     /// [`crate::modeling_params::MODELING_PARAMS`] give the
     /// mode/category/type-set/name 4-tuple.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    ///
+    /// YAML serialization uses **compound named keys** like
+    /// `"Tone (E.GTR/01-02)"` or `"Tone Sw (Modeling)"` to disambiguate
+    /// the same `name` appearing across multiple instrument categories
+    /// (Strat Tone vs Tele Tone vs Sitar Tone). See
+    /// [`crate::modeling_tail_serde`].
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        with = "crate::modeling_tail_serde"
+    )]
     pub raw_tail: BTreeMap<u16, u8>,
 }
 
