@@ -20,7 +20,25 @@ const SECTIONS: &[(&str, &str)] = &[
 fn main() {
     println!("cargo:rerun-if-changed=data/midi.xml");
     println!("cargo:rerun-if-changed=data/midi.xsd");
+    println!("cargo:rerun-if-changed=data/help.toml");
     println!("cargo:rerun-if-changed=build.rs");
+
+    // Load per-parameter help text (hand-curated, keyed by canonical
+    // ParamEntry.name). Empty/missing entries yield empty help strings
+    // in the generated tables.
+    let help: BTreeMap<String, String> = {
+        let raw = fs::read_to_string("data/help.toml").expect("read data/help.toml");
+        let parsed: toml::Value = raw.parse().expect("parse data/help.toml");
+        let mut out = BTreeMap::new();
+        if let toml::Value::Table(t) = parsed {
+            for (k, v) in t {
+                if let toml::Value::String(s) = v {
+                    out.insert(k, s);
+                }
+            }
+        }
+        out
+    };
 
     let raw = fs::read_to_string("data/midi.xml").expect("read data/midi.xml");
     let xml = strip_xml_declaration(&raw);
@@ -55,11 +73,11 @@ fn main() {
     // And the MFX parameter table — empirically validates the
     // disjoint-type-ranges hypothesis: each (page, offset) inside the
     // 256-byte MFX block is owned by at most one MFX effect type.
-    let mfx = emit_mfx_param_table(&doc);
+    let mfx = emit_mfx_param_table(&doc, &help);
     fs::write(out_dir.join("mfx_params.rs"), mfx).expect("write mfx_params.rs");
 
     // Same for the MOD effect (page 0x07 0x18..=0x5C, 14 types).
-    let mod_ = emit_mod_param_table(&doc);
+    let mod_ = emit_mod_param_table(&doc, &help);
     fs::write(out_dir.join("mod_params.rs"), mod_).expect("write mod_params.rs");
 
     // And Modeling — 2-axis taxonomy (mode encoded by page, category by
@@ -68,7 +86,7 @@ fn main() {
     // this parameter — physical-instrument families with the same control
     // surface), so the disjoint check here is weaker than for MFX/MOD:
     // we only assert no two DATA elements claim the same (page, offset).
-    let modeling = emit_modeling_param_table(&doc);
+    let modeling = emit_modeling_param_table(&doc, &help);
     fs::write(out_dir.join("modeling_params.rs"), modeling)
         .expect("write modeling_params.rs");
 }
@@ -575,7 +593,7 @@ const MFX_TYPE_NAMES: &[(&str, &str)] = &[
 /// the table model would be wrong — the build fails loudly and the
 /// alternative (Rust sum types / per-type structs) would need to be
 /// considered.
-fn emit_mfx_param_table(doc: &Document) -> String {
+fn emit_mfx_param_table(doc: &Document, help: &BTreeMap<String, String>) -> String {
     let root = doc.root_element();
     let structure = root
         .children()
@@ -708,6 +726,13 @@ fn emit_mfx_param_table(doc: &Document) -> String {
     .unwrap();
     writeln!(out, "    /// dB across wire 0x00..=0x1E).").unwrap();
     writeln!(out, "    pub display_range: Option<(i32, i32)>,").unwrap();
+    writeln!(
+        out,
+        "    /// Tooltip-friendly description from the owner's manual"
+    )
+    .unwrap();
+    writeln!(out, "    /// (hand-curated, keyed by parameter name).").unwrap();
+    writeln!(out, "    pub help: &'static str,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
     writeln!(
@@ -733,12 +758,14 @@ fn emit_mfx_param_table(doc: &Document) -> String {
             None => "None".to_string(),
         };
         let (values, range, display_range) = format_param_meta(&row.meta);
+        let help_str = help.get(&row.name).map(String::as_str).unwrap_or("");
         writeln!(
             out,
-            "    MfxParamEntry {{ page: 0x{:02X}, offset: 0x{:02X}, owning_type: {owner}, name: {}, values: {values}, range: {range}, display_range: {display_range} }},",
+            "    MfxParamEntry {{ page: 0x{:02X}, offset: 0x{:02X}, owning_type: {owner}, name: {}, values: {values}, range: {range}, display_range: {display_range}, help: {} }},",
             row.page,
             row.offset,
             rust_str(&row.name),
+            rust_str(help_str),
         )
         .unwrap();
     }
@@ -802,7 +829,7 @@ const MOD_TYPE_NAMES: &[(&str, &str)] = &[
     ("Equalizer", "Equalizer"),
 ];
 
-fn emit_mod_param_table(doc: &Document) -> String {
+fn emit_mod_param_table(doc: &Document, help: &BTreeMap<String, String>) -> String {
     let root = doc.root_element();
     let structure = root
         .children()
@@ -864,6 +891,7 @@ fn emit_mod_param_table(doc: &Document) -> String {
         MOD_TYPE_NAMES,
         &entries,
         "Mod_TYPE_BYTE_COUNTS",
+        help,
     )
     .replace("Mod_TYPE_BYTE_COUNTS", "MOD_TYPE_BYTE_COUNTS")
 }
@@ -893,7 +921,7 @@ fn mod_type_for_desc(desc: &str) -> Option<&'static str> {
 /// Envelope modulation"). We don't try to parse the desc into a
 /// structured type set in build.rs; we expose it as a raw string and
 /// let consumers split/match as they need.
-fn emit_modeling_param_table(doc: &Document) -> String {
+fn emit_modeling_param_table(doc: &Document, help: &BTreeMap<String, String>) -> String {
     let root = doc.root_element();
     let structure = root
         .children()
@@ -1081,6 +1109,12 @@ fn emit_modeling_param_table(doc: &Document) -> String {
     )
     .unwrap();
     writeln!(out, "    pub display_range: Option<(i32, i32)>,").unwrap();
+    writeln!(
+        out,
+        "    /// Tooltip-friendly description from the owner's manual."
+    )
+    .unwrap();
+    writeln!(out, "    pub help: &'static str,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
     writeln!(out, "pub const MODELING_BLOCK_SIZE: usize = 256;").unwrap();
@@ -1099,16 +1133,18 @@ fn emit_modeling_param_table(doc: &Document) -> String {
             "ModelingMode::Bass"
         };
         let (values, range, display_range) = format_param_meta(&row.meta);
+        let help_str = help.get(&row.customdesc).map(String::as_str).unwrap_or("");
         writeln!(
             out,
             "    ModelingParamEntry {{ page: 0x{:02X}, offset: 0x{:02X}, mode: {mode}, \
              category: {}, types: {}, name: {}, values: {values}, range: {range}, \
-             display_range: {display_range} }},",
+             display_range: {display_range}, help: {} }},",
             row.page,
             row.offset,
             rust_str(&row.abbr),
             rust_str(&row.desc),
             rust_str(&row.customdesc),
+            rust_str(help_str),
         )
         .unwrap();
     }
@@ -1200,6 +1236,7 @@ fn emit_table_module(
     type_names: &[(&str, &str)],
     entries: &[TypedParamRow],
     counts_array_name: &str,
+    help: &BTreeMap<String, String>,
 ) -> String {
     let mut out = String::new();
     writeln!(
@@ -1250,6 +1287,12 @@ fn emit_table_module(
     )
     .unwrap();
     writeln!(out, "    pub display_range: Option<(i32, i32)>,").unwrap();
+    writeln!(
+        out,
+        "    /// Tooltip-friendly description from the owner's manual."
+    )
+    .unwrap();
+    writeln!(out, "    pub help: &'static str,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
     writeln!(out, "pub const {size_const}: usize = {block_size};").unwrap();
@@ -1265,12 +1308,14 @@ fn emit_table_module(
             None => "None".to_string(),
         };
         let (values, range, display_range) = format_param_meta(&row.meta);
+        let help_str = help.get(&row.name).map(String::as_str).unwrap_or("");
         writeln!(
             out,
-            "    ParamEntry {{ page: 0x{:02X}, offset: 0x{:02X}, owning_type: {owner}, name: {}, values: {values}, range: {range}, display_range: {display_range} }},",
+            "    ParamEntry {{ page: 0x{:02X}, offset: 0x{:02X}, owning_type: {owner}, name: {}, values: {values}, range: {range}, display_range: {display_range}, help: {} }},",
             row.page,
             row.offset,
             rust_str(&row.name),
+            rust_str(help_str),
         )
         .unwrap();
     }

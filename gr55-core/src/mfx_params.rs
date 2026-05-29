@@ -82,6 +82,11 @@ mod tests {
         assert_eq!(mfx_type.values.len(), 20);
         assert_eq!(mfx_type.values[0], (0x00, "Equalizer"));
         assert_eq!(mfx_type.values[19], (0x13, "Pitch Shifter"));
+        // help text loaded from data/help.toml keyed by name.
+        assert!(mfx_type.help.contains("MFX effect type"));
+
+        // Equalizer Low Gain has help text too.
+        assert!(eq_low_gain.help.contains("Low band"));
     }
 
     #[test]

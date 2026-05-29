@@ -10,6 +10,7 @@ build = "build.rs"
 
 [build-dependencies]
 roxmltree = "0.20"
+toml = "0.8"
 
 [features]
 default = []

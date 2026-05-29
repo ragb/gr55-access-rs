@@ -51,15 +51,17 @@ mod tests {
 
     #[test]
     fn enriched_metadata_covers_known_entries() {
-        // Distortion Drive at 0x19: range 0..=120, display 0..=120.
+        // Distortion Drive at 0x19: range 0..=120, display 0..=120, has help.
         let dist_drive = &MOD_PARAMS[0x19];
         assert_eq!(dist_drive.range, Some((0x00, 0x78)));
         assert_eq!(dist_drive.display_range, Some((0, 120)));
         assert!(dist_drive.values.is_empty());
+        assert!(dist_drive.help.contains("distortion"));
 
-        // Distortion Tone at 0x1A: range 0..=100, display -50..=+50.
+        // Distortion Tone at 0x1A: range 0..=100, display -50..=+50, has help.
         let dist_tone = &MOD_PARAMS[0x1A];
         assert_eq!(dist_tone.display_range, Some((-50, 50)));
+        assert!(dist_tone.help.contains("Tone"));
 
         // MOD type byte at 0x16: 14 named effect types.
         let mod_type = &MOD_PARAMS[0x16];

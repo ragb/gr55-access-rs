@@ -1,0 +1,86 @@
+# Per-parameter help text for MFX/MOD/Modeling params, looked up by
+# canonical parameter name (the `name` field on the generated
+# *ParamEntry structs) during build.rs codegen. Transcribed from the
+# GR-55 Owner's Manual pages 41-53 (effects).
+#
+# Keys are quoted strings exactly matching ParamEntry.name. Values are
+# tooltip-friendly descriptions, kept to one or two sentences each.
+#
+# Coverage is intentionally a starter set — the most commonly-edited
+# parameters across MFX/MOD. Adding more is mechanical: pick a name
+# from the table, write a one-sentence description from the manual.
+
+# ---- MFX common header ----
+#
+# Param names mirror FloorBoard's `desc + customdesc` concatenation,
+# minus a trailing ":" on the desc. The MFX type byte's `desc="MFX:"`
+# is stripped entirely, leaving the bare customdesc ("Type"). The
+# other compound names disambiguate MFX-side ("Chorus Send MFX") from
+# MOD-side ("Chorus Send Amp/Mod") via the customdesc suffix.
+
+"Chorus Send MFX" = "Amount of MFX output sent to the chorus effect (0–100)."
+"Delay Send MFX" = "Amount of MFX output sent to the delay effect (0–100)."
+"Reverb Send MFX" = "Amount of MFX output sent to the reverb effect (0–100)."
+"Switch Effect" = "Enables or bypasses the MFX effect."
+"Type" = "Selects the MFX effect type. Each type produces a different effect; switching types preserves the other types' parameters."
+"Pan" = "MFX stereo position. L50 = full left, center = centered, R50 = full right."
+
+# ---- MFX Equalizer ----
+
+"Equalizer Low Freq" = "Frequency at which the Low band acts (200Hz or 400Hz)."
+"Equalizer Low Gain" = "Boost or cut for the Low band (−15 to +15 dB)."
+"Equalizer Mid 1 Freq" = "Centre frequency for the Mid 1 peaking band."
+"Equalizer Mid 1 Gain" = "Boost or cut for the Mid 1 band."
+"Equalizer Mid 1 Q" = "Width of the Mid 1 peaking band. Higher Q = narrower band."
+"Equalizer Mid 2 Freq" = "Centre frequency for the Mid 2 peaking band."
+"Equalizer Mid 2 Gain" = "Boost or cut for the Mid 2 band."
+"Equalizer Mid 2 Q" = "Width of the Mid 2 peaking band. Higher Q = narrower band."
+"Equalizer High Freq" = "Frequency at which the High band acts."
+"Equalizer High Gain" = "Boost or cut for the High band."
+"Equalizer Level" = "Output level of the EQ section."
+
+# ---- MFX Super Filter ----
+
+"Super Filter Type" = "Filter mode: LPF (lows pass), BPF (band pass), HPF (highs pass), or Notch."
+"Super Filter Slope" = "Filter steepness. Higher slope = sharper cutoff."
+"Super Filter Cutoff" = "Frequency at which the filter takes effect."
+"Super Filter Resonance" = "Emphasises the cutoff frequency. Raising too high may cause oscillation."
+
+# ---- MOD common header (page 0x07) ----
+
+"Chorus Send Amp/Mod" = "Amount of MOD output sent to the chorus effect."
+"Delay Send Amp/Mod" = "Amount of MOD output sent to the delay effect."
+"Reverb Send Amp/Mod" = "Amount of MOD output sent to the reverb effect."
+"MOD: Type" = "Selects the MOD effect type."
+
+# ---- Distortion ----
+
+"Distortion Type" = "Distortion algorithm (clean booster, classic overdrive, hi-gain, etc.)."
+"Distortion Drive" = "Amount of distortion. Higher values produce more saturation."
+"Distortion Tone" = "Tone control after distortion. Negative = warmer, positive = brighter."
+"Distortion Level" = "Output level of the distortion stage."
+
+# ---- Wah ----
+
+"Wah Mode" = "How the wah is controlled (manual position, auto, or pedal-controlled)."
+"Wah Type" = "Wah voicing — different filter responses simulating classic wah pedals."
+"Wah Pedal Position" = "Manual wah filter position when not pedal-controlled."
+"Wah Sens" = "Sensitivity to input level for auto-wah modes."
+"Wah Frequency" = "Centre frequency of the wah filter."
+"Wah Peak" = "Resonance / Q of the wah filter."
+"Wah Level" = "Output level of the wah."
+
+# ---- Compressor / Limiter ----
+
+"Compressor Sustain" = "Compression amount. Higher values increase sustain."
+"Compressor Attack" = "Compressor attack time."
+"Compressor Level" = "Output level after compression."
+"Limiter Threshold" = "Level above which the limiter clamps the signal."
+"Limiter Release" = "How quickly the limiter releases after clamping."
+"Limiter Level" = "Output level of the limiter."
+
+# ---- Modeling common header ----
+
+"Modeling Tone Sw" = "Enables or bypasses the modelling engine."
+"Modeling Tone Level" = "Output level of the modelling engine."
+"Modeling 12 String" = "Adds a second virtual string an octave above each main string."
