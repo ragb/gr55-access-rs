@@ -1039,6 +1039,294 @@ fn all_mfx_none(arr: &[Option<Mfx>; 2]) -> bool {
     arr.iter().all(Option::is_none)
 }
 
+/// Guitar Mode modeling category at page `0x10` offset `0x00`. Selects
+/// which of `gm_egtr_type` / `gm_acoustic_type` / `gm_ebass_type` /
+/// `gm_synth_type` the device actually plays. Mined from FloorBoard
+/// `midi.xml:43855-43860`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GuitarModeCategory {
+    ElectricGuitar,
+    Acoustic,
+    ElectricBass,
+    Synth,
+}
+
+impl GuitarModeCategory {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use GuitarModeCategory::*;
+        Some(match b {
+            0x00 => ElectricGuitar,
+            0x01 => Acoustic,
+            0x02 => ElectricBass,
+            0x03 => Synth,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use GuitarModeCategory::*;
+        match self {
+            ElectricGuitar => 0x00,
+            Acoustic => 0x01,
+            ElectricBass => 0x02,
+            Synth => 0x03,
+        }
+    }
+}
+
+/// Guitar Mode E.Guitar type at page `0x10` offset `0x01`. 10 vintage-amp /
+/// instrument emulations. Mined from FloorBoard `midi.xml:43862-43873`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GmEGuitarType {
+    ClassicStrat,
+    ModernStrat,
+    HhStrat,
+    Telecaster,
+    LesPaul,
+    LesPaulP90,
+    Lips,
+    Rickenbacker,
+    Gibson335,
+    GibsonL4,
+}
+
+impl GmEGuitarType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use GmEGuitarType::*;
+        Some(match b {
+            0x00 => ClassicStrat,
+            0x01 => ModernStrat,
+            0x02 => HhStrat,
+            0x03 => Telecaster,
+            0x04 => LesPaul,
+            0x05 => LesPaulP90,
+            0x06 => Lips,
+            0x07 => Rickenbacker,
+            0x08 => Gibson335,
+            0x09 => GibsonL4,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use GmEGuitarType::*;
+        match self {
+            ClassicStrat => 0x00,
+            ModernStrat => 0x01,
+            HhStrat => 0x02,
+            Telecaster => 0x03,
+            LesPaul => 0x04,
+            LesPaulP90 => 0x05,
+            Lips => 0x06,
+            Rickenbacker => 0x07,
+            Gibson335 => 0x08,
+            GibsonL4 => 0x09,
+        }
+    }
+}
+
+/// Guitar Mode Acoustic instrument type at page `0x10` offset `0x02`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GmAcousticType {
+    Steel,
+    Nylon,
+    Sitar,
+    Banjo,
+    Resonator,
+}
+
+impl GmAcousticType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use GmAcousticType::*;
+        Some(match b {
+            0x00 => Steel,
+            0x01 => Nylon,
+            0x02 => Sitar,
+            0x03 => Banjo,
+            0x04 => Resonator,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use GmAcousticType::*;
+        match self {
+            Steel => 0x00,
+            Nylon => 0x01,
+            Sitar => 0x02,
+            Banjo => 0x03,
+            Resonator => 0x04,
+        }
+    }
+}
+
+/// Guitar Mode E.Bass type at page `0x10` offset `0x03`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GmEBassType {
+    JazzBass,
+    PBass,
+}
+
+impl GmEBassType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::JazzBass),
+            0x01 => Some(Self::PBass),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::JazzBass => 0x00,
+            Self::PBass => 0x01,
+        }
+    }
+}
+
+/// Modeling Synth type. Used at both page `0x10` offset `0x04` (Guitar
+/// Mode) and page `0x10` offset `0x08` (Bass Mode) — the byte layout
+/// is identical for both modes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelingSynthType {
+    AnalogGr,
+    Wave,
+    FilterBass,
+    Crystal,
+    Organ,
+    Brass,
+}
+
+impl ModelingSynthType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use ModelingSynthType::*;
+        Some(match b {
+            0x00 => AnalogGr,
+            0x01 => Wave,
+            0x02 => FilterBass,
+            0x03 => Crystal,
+            0x04 => Organ,
+            0x05 => Brass,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use ModelingSynthType::*;
+        match self {
+            AnalogGr => 0x00,
+            Wave => 0x01,
+            FilterBass => 0x02,
+            Crystal => 0x03,
+            Organ => 0x04,
+            Brass => 0x05,
+        }
+    }
+}
+
+/// Bass Mode modeling category at page `0x10` offset `0x05`. Distinct
+/// from `GuitarModeCategory` — Bass Mode omits `Acoustic` and reorders
+/// the remaining three.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BassModeCategory {
+    ElectricBass,
+    Synth,
+    ElectricGuitar,
+}
+
+impl BassModeCategory {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use BassModeCategory::*;
+        Some(match b {
+            0x00 => ElectricBass,
+            0x01 => Synth,
+            0x02 => ElectricGuitar,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use BassModeCategory::*;
+        match self {
+            ElectricBass => 0x00,
+            Synth => 0x01,
+            ElectricGuitar => 0x02,
+        }
+    }
+}
+
+/// Bass Mode E.Bass type at page `0x10` offset `0x06`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BmEBassType {
+    VintJazzBass,
+    JazzBass,
+    VintPBass,
+    PBass,
+    MusicMan,
+    Rickenbacker,
+    ThunderBird,
+    Active,
+    HofnerViolin,
+}
+
+impl BmEBassType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use BmEBassType::*;
+        Some(match b {
+            0x00 => VintJazzBass,
+            0x01 => JazzBass,
+            0x02 => VintPBass,
+            0x03 => PBass,
+            0x04 => MusicMan,
+            0x05 => Rickenbacker,
+            0x06 => ThunderBird,
+            0x07 => Active,
+            0x08 => HofnerViolin,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use BmEBassType::*;
+        match self {
+            VintJazzBass => 0x00,
+            JazzBass => 0x01,
+            VintPBass => 0x02,
+            PBass => 0x03,
+            MusicMan => 0x04,
+            Rickenbacker => 0x05,
+            ThunderBird => 0x06,
+            Active => 0x07,
+            HofnerViolin => 0x08,
+        }
+    }
+}
+
+/// Bass Mode E.Guitar type at page `0x10` offset `0x07` (only 2 vars —
+/// Classic Strat and Les Paul).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BmEGuitarType {
+    ClassicStrat,
+    LesPaul,
+}
+
+impl BmEGuitarType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::ClassicStrat),
+            0x01 => Some(Self::LesPaul),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::ClassicStrat => 0x00,
+            Self::LesPaul => 0x01,
+        }
+    }
+}
+
 /// PreAmp model at page `0x07` offset `0x01`. 42 variants — all the
 /// classic-amp emulations the GR-55 ships with, grouped into named
 /// families (JC Clean, TW Clean, Crunch, Combo, Match, BG Lead, MS
@@ -2966,6 +3254,59 @@ pub struct PatchArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mod_pan: Option<u8>,
 
+    // ---- Page 0x10: Modeling common header (offsets 0x00..=0x1D) ----
+    // The type-specific tail at 0x1E..=0x7F (and all of page 0x11) falls
+    // through to unknown_bytes pending sum-type modelling.
+    /// Guitar Mode category at `0x10:00:00`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gm_category: Option<GuitarModeCategory>,
+    /// Guitar Mode E.Guitar type at `0x10:00:01`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gm_egtr_type: Option<GmEGuitarType>,
+    /// Guitar Mode Acoustic type at `0x10:00:02`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gm_acoustic_type: Option<GmAcousticType>,
+    /// Guitar Mode E.Bass type at `0x10:00:03`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gm_ebass_type: Option<GmEBassType>,
+    /// Guitar Mode Synth type at `0x10:00:04`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gm_synth_type: Option<ModelingSynthType>,
+    /// Bass Mode category at `0x10:00:05`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bm_category: Option<BassModeCategory>,
+    /// Bass Mode E.Bass type at `0x10:00:06`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bm_ebass_type: Option<BmEBassType>,
+    /// Bass Mode E.Guitar type at `0x10:00:07`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bm_egtr_type: Option<BmEGuitarType>,
+    /// Bass Mode Synth type at `0x10:00:08`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bm_synth_type: Option<ModelingSynthType>,
+    /// Modeling tone level at `0x10:00:09` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modeling_tone_level: Option<u8>,
+    /// Modeling tone switch at `0x10:00:0A`. Uses the same wire-reversed
+    /// encoding as [`AnalogPuToneSw`] (0x00 = On, 0x01 = Off).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modeling_tone_sw: Option<AnalogPuToneSw>,
+    /// Per-string modeling level at `0x10:00:0B..=0x10` (strings 1..=6,
+    /// raw 0..=100 each).
+    #[serde(default, skip_serializing_if = "string_shift_all_none")]
+    pub modeling_string_level: [Option<u8>; 6],
+    /// Per-string pitch step at `0x10:00:11/13/15/17/19/1B` (strings 1..=6,
+    /// raw 0..=0x30 = -24..=+24 semitones).
+    #[serde(default, skip_serializing_if = "string_shift_all_none")]
+    pub modeling_pitch_step: [Option<u8>; 6],
+    /// Per-string pitch fine at `0x10:00:12/14/16/18/1A/1C` (strings 1..=6,
+    /// raw 0..=0x64 = -50..=+50 cents).
+    #[serde(default, skip_serializing_if = "string_shift_all_none")]
+    pub modeling_pitch_fine: [Option<u8>; 6],
+    /// 12-string switch at `0x10:00:1D`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modeling_12_string: Option<OnOff>,
+
     /// Everything inside the patch payload that the typed model doesn't yet
     /// cover. Keys are formatted `"PP:HH:LL"` — page byte, then the two
     /// in-page offset bytes.
@@ -3291,6 +3632,35 @@ impl PatchArea {
             (0x07, 0x00, 0x15) => self.mod_switch = OnOff::from_byte(b),
             (0x07, 0x00, 0x16) => self.mod_type = ModType::from_byte(b),
             (0x07, 0x00, 0x17) if b <= 100 => self.mod_pan = Some(b),
+            // Page 0x10: Modeling common header.
+            (0x10, 0x00, 0x00) => self.gm_category = GuitarModeCategory::from_byte(b),
+            (0x10, 0x00, 0x01) => self.gm_egtr_type = GmEGuitarType::from_byte(b),
+            (0x10, 0x00, 0x02) => self.gm_acoustic_type = GmAcousticType::from_byte(b),
+            (0x10, 0x00, 0x03) => self.gm_ebass_type = GmEBassType::from_byte(b),
+            (0x10, 0x00, 0x04) => self.gm_synth_type = ModelingSynthType::from_byte(b),
+            (0x10, 0x00, 0x05) => self.bm_category = BassModeCategory::from_byte(b),
+            (0x10, 0x00, 0x06) => self.bm_ebass_type = BmEBassType::from_byte(b),
+            (0x10, 0x00, 0x07) => self.bm_egtr_type = BmEGuitarType::from_byte(b),
+            (0x10, 0x00, 0x08) => self.bm_synth_type = ModelingSynthType::from_byte(b),
+            (0x10, 0x00, 0x09) if b <= 100 => self.modeling_tone_level = Some(b),
+            (0x10, 0x00, 0x0A) => self.modeling_tone_sw = AnalogPuToneSw::from_byte(b),
+            (0x10, 0x00, lo @ 0x0B..=0x10) if b <= 100 => {
+                self.modeling_string_level[(lo - 0x0B) as usize] = Some(b);
+            }
+            // Strings 1..=6: pitch step at even-aligned offsets, pitch fine at odd.
+            (0x10, 0x00, 0x11) if b <= 0x30 => self.modeling_pitch_step[0] = Some(b),
+            (0x10, 0x00, 0x12) if b <= 0x64 => self.modeling_pitch_fine[0] = Some(b),
+            (0x10, 0x00, 0x13) if b <= 0x30 => self.modeling_pitch_step[1] = Some(b),
+            (0x10, 0x00, 0x14) if b <= 0x64 => self.modeling_pitch_fine[1] = Some(b),
+            (0x10, 0x00, 0x15) if b <= 0x30 => self.modeling_pitch_step[2] = Some(b),
+            (0x10, 0x00, 0x16) if b <= 0x64 => self.modeling_pitch_fine[2] = Some(b),
+            (0x10, 0x00, 0x17) if b <= 0x30 => self.modeling_pitch_step[3] = Some(b),
+            (0x10, 0x00, 0x18) if b <= 0x64 => self.modeling_pitch_fine[3] = Some(b),
+            (0x10, 0x00, 0x19) if b <= 0x30 => self.modeling_pitch_step[4] = Some(b),
+            (0x10, 0x00, 0x1A) if b <= 0x64 => self.modeling_pitch_fine[4] = Some(b),
+            (0x10, 0x00, 0x1B) if b <= 0x30 => self.modeling_pitch_step[5] = Some(b),
+            (0x10, 0x00, 0x1C) if b <= 0x64 => self.modeling_pitch_fine[5] = Some(b),
+            (0x10, 0x00, 0x1D) => self.modeling_12_string = OnOff::from_byte(b),
             _ => {
                 self.unknown_bytes.insert(format_key(page, hi, lo), b);
             }
@@ -3910,6 +4280,58 @@ impl PatchArea {
         }
         if let Some(v) = self.mod_pan {
             bytes.insert([base_msb, 0x07, 0x00, 0x17], v);
+        }
+        // Page 0x10: Modeling common header
+        if let Some(v) = self.gm_category {
+            bytes.insert([base_msb, 0x10, 0x00, 0x00], v.to_byte());
+        }
+        if let Some(v) = self.gm_egtr_type {
+            bytes.insert([base_msb, 0x10, 0x00, 0x01], v.to_byte());
+        }
+        if let Some(v) = self.gm_acoustic_type {
+            bytes.insert([base_msb, 0x10, 0x00, 0x02], v.to_byte());
+        }
+        if let Some(v) = self.gm_ebass_type {
+            bytes.insert([base_msb, 0x10, 0x00, 0x03], v.to_byte());
+        }
+        if let Some(v) = self.gm_synth_type {
+            bytes.insert([base_msb, 0x10, 0x00, 0x04], v.to_byte());
+        }
+        if let Some(v) = self.bm_category {
+            bytes.insert([base_msb, 0x10, 0x00, 0x05], v.to_byte());
+        }
+        if let Some(v) = self.bm_ebass_type {
+            bytes.insert([base_msb, 0x10, 0x00, 0x06], v.to_byte());
+        }
+        if let Some(v) = self.bm_egtr_type {
+            bytes.insert([base_msb, 0x10, 0x00, 0x07], v.to_byte());
+        }
+        if let Some(v) = self.bm_synth_type {
+            bytes.insert([base_msb, 0x10, 0x00, 0x08], v.to_byte());
+        }
+        if let Some(v) = self.modeling_tone_level {
+            bytes.insert([base_msb, 0x10, 0x00, 0x09], v);
+        }
+        if let Some(v) = self.modeling_tone_sw {
+            bytes.insert([base_msb, 0x10, 0x00, 0x0A], v.to_byte());
+        }
+        for (i, v) in self.modeling_string_level.iter().enumerate() {
+            if let Some(b) = v {
+                bytes.insert([base_msb, 0x10, 0x00, 0x0B + i as u8], *b);
+            }
+        }
+        for (i, v) in self.modeling_pitch_step.iter().enumerate() {
+            if let Some(b) = v {
+                bytes.insert([base_msb, 0x10, 0x00, 0x11 + (i as u8 * 2)], *b);
+            }
+        }
+        for (i, v) in self.modeling_pitch_fine.iter().enumerate() {
+            if let Some(b) = v {
+                bytes.insert([base_msb, 0x10, 0x00, 0x12 + (i as u8 * 2)], *b);
+            }
+        }
+        if let Some(v) = self.modeling_12_string {
+            bytes.insert([base_msb, 0x10, 0x00, 0x1D], v.to_byte());
         }
         for (k, b) in &self.unknown_bytes {
             let (page, hi, lo) =
@@ -4768,6 +5190,65 @@ mod tests {
         // MOD-type tail preserved in unknown_bytes.
         assert_eq!(area.unknown_bytes.get("07:00:18"), Some(&0xE1));
         assert_eq!(area.unknown_bytes.get("07:00:1B"), Some(&0xE4));
+
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
+    }
+
+    #[test]
+    fn page_10_modeling_header_round_trips() {
+        let mut payload: Vec<u8> = vec![
+            GuitarModeCategory::ElectricGuitar.to_byte(), // 0x00
+            GmEGuitarType::Telecaster.to_byte(),          // 0x01
+            GmAcousticType::Nylon.to_byte(),              // 0x02
+            GmEBassType::JazzBass.to_byte(),              // 0x03
+            ModelingSynthType::Wave.to_byte(),            // 0x04
+            BassModeCategory::Synth.to_byte(),            // 0x05
+            BmEBassType::PBass.to_byte(),                 // 0x06
+            BmEGuitarType::LesPaul.to_byte(),             // 0x07
+            ModelingSynthType::Brass.to_byte(),           // 0x08
+            85,                                           // 0x09 tone_level
+            AnalogPuToneSw::On.to_byte(),                 // 0x0A (= 0x00)
+        ];
+        // 0x0B..=0x10 string_level[6]
+        payload.extend([50, 55, 60, 65, 70, 75]);
+        // Strings 1..=6: step at 0x11/13/15/17/19/1B, fine at 0x12/14/16/18/1A/1C
+        for s in 0..6 {
+            payload.push(0x18 + s); // step (-12..-7 semitones)
+            payload.push(0x32 + s); // fine (0..+5 cents-ish)
+        }
+        payload.push(OnOff::On.to_byte()); // 0x1D 12_string
+        payload.push(0xF1); // 0x1E type-specific tail
+        payload.push(0xF2); // 0x1F type-specific tail
+
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x10, 0x00, 0x00],
+            data: Cow::Owned(payload),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+
+        assert_eq!(area.gm_category, Some(GuitarModeCategory::ElectricGuitar));
+        assert_eq!(area.gm_egtr_type, Some(GmEGuitarType::Telecaster));
+        assert_eq!(area.gm_acoustic_type, Some(GmAcousticType::Nylon));
+        assert_eq!(area.gm_ebass_type, Some(GmEBassType::JazzBass));
+        assert_eq!(area.gm_synth_type, Some(ModelingSynthType::Wave));
+        assert_eq!(area.bm_category, Some(BassModeCategory::Synth));
+        assert_eq!(area.bm_ebass_type, Some(BmEBassType::PBass));
+        assert_eq!(area.bm_egtr_type, Some(BmEGuitarType::LesPaul));
+        assert_eq!(area.bm_synth_type, Some(ModelingSynthType::Brass));
+        assert_eq!(area.modeling_tone_level, Some(85));
+        assert_eq!(area.modeling_tone_sw, Some(AnalogPuToneSw::On));
+        assert_eq!(area.modeling_string_level[0], Some(50));
+        assert_eq!(area.modeling_string_level[5], Some(75));
+        assert_eq!(area.modeling_pitch_step[0], Some(0x18));
+        assert_eq!(area.modeling_pitch_step[5], Some(0x1D));
+        assert_eq!(area.modeling_pitch_fine[0], Some(0x32));
+        assert_eq!(area.modeling_pitch_fine[5], Some(0x37));
+        assert_eq!(area.modeling_12_string, Some(OnOff::On));
+        // Tail bytes preserved.
+        assert_eq!(area.unknown_bytes.get("10:00:1E"), Some(&0xF1));
+        assert_eq!(area.unknown_bytes.get("10:00:1F"), Some(&0xF2));
 
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
