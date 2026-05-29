@@ -1843,10 +1843,18 @@ pub struct Pcm {
     /// (Offsets `0x1D` and `0x23` are not referenced by FloorBoard's
     /// UI — likely reserved.)
     ///
-    /// These bytes round-trip losslessly through this map until a
-    /// follow-up commit promotes them to typed fields backed by a
-    /// build-time-generated param table.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    /// These bytes round-trip losslessly through this map. YAML
+    /// serialization uses **named keys** from
+    /// [`crate::pcm_tail_params::PCM_TAIL_PARAMS`] (e.g. `"Filter
+    /// Type"`, `"Cutoff"`) instead of raw integer offsets. Reserved
+    /// or out-of-documented-range bytes fall back to `"0xNN"` hex
+    /// strings; the deserializer accepts either form. See
+    /// [`crate::pcm_tail_serde`] for the wire format.
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        with = "crate::pcm_tail_serde"
+    )]
     pub raw_tail: BTreeMap<u8, u8>,
 }
 

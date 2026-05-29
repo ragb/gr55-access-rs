@@ -8,6 +8,7 @@ pub mod mod_params;
 pub mod modeling_params;
 pub mod patch;
 pub mod pcm_tail_params;
+pub(crate) mod pcm_tail_serde;
 pub mod pcm_tones;
 pub mod sysex;
 pub mod system;
