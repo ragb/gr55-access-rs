@@ -37,6 +37,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Install ALSA dev headers
+        # Required because the `gr55 schema` invocation below depends on
+        # the `gr55` binary, which links midir → alsa-sys on Linux.
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
