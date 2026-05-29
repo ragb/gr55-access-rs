@@ -37,8 +37,11 @@
 //! - [`help_for`] — tooltip text for a parameter name.
 //! - [`version`] — crate version string.
 
+use std::borrow::Cow;
+
 use wasm_bindgen::prelude::*;
 
+use gr55_core::address::PatchSlot;
 use gr55_core::g5l;
 use gr55_core::mfx_params::{MfxParamEntry, MFX_PARAMS};
 use gr55_core::mod_params::{ParamEntry as ModParamEntry, MOD_PARAMS};
@@ -144,6 +147,62 @@ pub fn validate_patch_yaml(yaml: &str) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------
+// Typed patch I/O
+//
+// PatchArea derives tsify-next::Tsify in gr55-core (gated behind the
+// `tsify` feature, which gr55-wasm always enables). That means these
+// functions take and return a structured JS object — no YAML
+// round-trip, no `any` typing, and no need for a YAML parser on the
+// editor side. The YAML-based variants above stay for the YAML
+// import/export panel, where text is the natural format.
+// ---------------------------------------------------------------------------
+
+/// Decode raw SysEx bytes into a typed `PatchArea`. Bytes outside the
+/// requested MSB are silently ignored — same semantics as
+/// `PatchArea::from_frames_at`.
+#[wasm_bindgen(js_name = decodePatchSysex)]
+pub fn decode_patch_sysex(bytes: &[u8], base_msb: u8) -> PatchArea {
+    let frames: Vec<Frame<'static>> = parse_frames_unchecked(bytes)
+        .filter_map(|r| r.ok())
+        .map(|(f, _)| f.into_owned())
+        .collect();
+    PatchArea::from_frames_at(&frames, base_msb)
+}
+
+/// Encode a typed `PatchArea` into raw SysEx bytes ready to send via
+/// Web MIDI. `device_id` is the Roland device ID byte (commonly `0x10`);
+/// `base_msb` is the destination area MSB — `0x18` for live TEMP RAM,
+/// `0x20`+slot encoding for USER storage (see `userPatchAddress`).
+#[wasm_bindgen(js_name = encodePatchToSysex)]
+pub fn encode_patch_to_sysex(
+    patch: PatchArea,
+    device_id: u8,
+    base_msb: u8,
+) -> Result<Vec<u8>, JsValue> {
+    let frames = patch.to_frames(device_id, base_msb).map_err(js_err)?;
+    let mut out = Vec::new();
+    for frame in &frames {
+        out.extend(frame.encode());
+    }
+    Ok(out)
+}
+
+/// Parse a `.g5l` file and return the requested slot as a typed
+/// `PatchArea`. `slot` is 0-based; `base_msb` is the area MSB the
+/// returned addresses target (typically `0x18`).
+#[wasm_bindgen(js_name = importG5lPatch)]
+pub fn import_g5l_patch(bytes: &[u8], slot: usize, base_msb: u8) -> Result<PatchArea, JsValue> {
+    let patches = g5l::parse(bytes).map_err(js_err)?;
+    let p = patches.get(slot).ok_or_else(|| {
+        js_err(format!(
+            "slot {slot} out of range ({} slots)",
+            patches.len()
+        ))
+    })?;
+    Ok(p.to_patch_area(base_msb))
+}
+
+// ---------------------------------------------------------------------------
 // Identity
 // ---------------------------------------------------------------------------
 
@@ -184,6 +243,84 @@ pub fn matches_identity_reply(bytes: &[u8]) -> bool {
     }
     // Family code (LSB first): 53 02. Family number: 00 00.
     bytes[6] == 0x53 && bytes[7] == 0x02 && bytes[8] == 0x00 && bytes[9] == 0x00
+}
+
+// ---------------------------------------------------------------------------
+// Frame builders + address helpers
+//
+// Editors need to send single-byte DT1 writes (for per-knob edits) and
+// targeted RQ1 reads (to pull the live edit buffer, a specific USER /
+// PRESET slot, or a System sub-page). Building those by hand in TS
+// means duplicating the Roland checksum + framing rules; expose them
+// here instead.
+// ---------------------------------------------------------------------------
+
+fn require_address_4(address: &[u8]) -> Result<[u8; 4], JsValue> {
+    if address.len() != 4 {
+        return Err(js_err(format!(
+            "address must be exactly 4 bytes, got {}",
+            address.len()
+        )));
+    }
+    Ok([address[0], address[1], address[2], address[3]])
+}
+
+/// Build a Roland **DT1** (data set) frame: write `data` at `address`
+/// on `device_id`. Returns the full SysEx bytes including SOX,
+/// manufacturer, model ID, command, address, checksum, and EOX.
+#[wasm_bindgen(js_name = buildDt1)]
+pub fn build_dt1(device_id: u8, address: &[u8], data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    let addr = require_address_4(address)?;
+    let frame = Frame::Dt1 {
+        device_id,
+        address: addr,
+        data: Cow::Borrowed(data),
+    };
+    Ok(frame.encode())
+}
+
+/// Build a Roland **RQ1** (data request) frame: ask the device to
+/// dump `size` bytes starting at `address`. The reply arrives as one
+/// or more DT1 frames.
+#[wasm_bindgen(js_name = buildRq1)]
+pub fn build_rq1(device_id: u8, address: &[u8], size: u32) -> Result<Vec<u8>, JsValue> {
+    let addr = require_address_4(address)?;
+    let frame = Frame::Rq1 {
+        device_id,
+        address: addr,
+        size,
+    };
+    Ok(frame.encode())
+}
+
+/// 4-byte address of the **edit-buffer write** area (TEMP RAM the
+/// device is currently rendering). Send patch DT1 frames here to push
+/// edits live.
+#[wasm_bindgen(js_name = editBufferWriteAddress)]
+pub fn edit_buffer_write_address() -> Vec<u8> {
+    vec![gr55_core::address::TEMP_WRITE_MSB, 0x00, 0x00, 0x00]
+}
+
+/// 4-byte address of the **edit-buffer read** area (Temporary Buffer
+/// Bulk). Use as the address of an RQ1 to pull the current patch.
+#[wasm_bindgen(js_name = editBufferReadAddress)]
+pub fn edit_buffer_read_address() -> Vec<u8> {
+    vec![gr55_core::address::TEMP_BUFFER_MSB, 0x00, 0x00, 0x00]
+}
+
+/// 4-byte address of the storage location for `User <bank>:<position>`
+/// (bank `1..=99`, position `1..=3`). Throws on out-of-range inputs.
+#[wasm_bindgen(js_name = userPatchAddress)]
+pub fn user_patch_address(bank: u8, position: u8) -> Result<Vec<u8>, JsValue> {
+    let slot = PatchSlot::user(bank, position).map_err(js_err)?;
+    Ok(slot.address().to_vec())
+}
+
+/// 4-byte address of the storage location for `Preset <bank>:<position>`.
+#[wasm_bindgen(js_name = presetPatchAddress)]
+pub fn preset_patch_address(bank: u8, position: u8) -> Result<Vec<u8>, JsValue> {
+    let slot = PatchSlot::preset(bank, position).map_err(js_err)?;
+    Ok(slot.address().to_vec())
 }
 
 // ---------------------------------------------------------------------------

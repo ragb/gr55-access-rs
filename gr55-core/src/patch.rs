@@ -3912,6 +3912,7 @@ fn assign_locate(page: u8, hi: u8, lo: u8) -> Option<(usize, u8)> {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct PatchArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<PatchMode>,
