@@ -4626,24 +4626,86 @@ impl PatchArea {
         apply(self, value);
     }
 
-    /// Encode this `PatchArea` into DT1 frames at the given MSB. One frame
-    /// per byte for now — small and obviously correct; the [`SystemArea`]
-    /// pattern is the same. The CLI can coalesce adjacent addresses later
-    /// if it becomes worth doing.
+    /// Decode a slice of DT1 frames addressed at an arbitrary 4-byte
+    /// slot base into a `PatchArea`. Counterpart to
+    /// [`PatchArea::to_frames_at`]: only frames whose first two
+    /// address bytes match `base[0..2]` are absorbed; the slot-column
+    /// byte is then masked to 0 before applying the typed-field
+    /// patterns (which are all keyed on `hi=0`).
     ///
-    /// [`SystemArea`]: crate::system::SystemArea
+    /// Use this when loading from a USER slot whose linear index
+    /// doesn't fall on a row boundary (User 01:2, 01:3, 02:1, …).
+    pub fn from_frames_at_address(frames: &[Frame<'_>], base: [u8; 4]) -> Self {
+        let rewritten: Vec<Frame<'static>> = frames
+            .iter()
+            .filter_map(|f| match f {
+                Frame::Dt1 {
+                    device_id,
+                    address,
+                    data,
+                } => {
+                    if address[0] != base[0] || address[1] != base[1] {
+                        return None;
+                    }
+                    let mut addr = *address;
+                    addr[1] = 0;
+                    Some(Frame::Dt1 {
+                        device_id: *device_id,
+                        address: addr,
+                        data: std::borrow::Cow::Owned(data.to_vec()),
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        PatchArea::from_frames_at(&rewritten, base[0])
+    }
+
+    /// Encode this `PatchArea` into DT1 frames addressed at MSB
+    /// `base_msb`, slot-column byte 0. Shorthand for
+    /// [`PatchArea::to_frames_at`] with base `[base_msb, 0, 0, 0]`.
+    ///
+    /// Only works for slots whose wire address has the slot-column
+    /// byte equal to 0 (the edit buffer at `0x18:00`, and USER 01:1,
+    /// 44:1, 87:1 only). For arbitrary slots use
+    /// [`PatchArea::to_frames_at`] with the full 4-byte address.
     pub fn to_frames(
         &self,
         device_id: u8,
         base_msb: u8,
     ) -> Result<Vec<Frame<'static>>, CodecError> {
-        let bytes = self.collect_bytes(base_msb)?;
+        self.to_frames_at(device_id, [base_msb, 0, 0, 0])
+    }
+
+    /// Encode this `PatchArea` into DT1 frames at an arbitrary 4-byte
+    /// base address. `base[0]` is the area MSB (`0x18` for live TEMP
+    /// RAM, `0x20..=0x22` for USER patch rows, `0x60` for the
+    /// edit-buffer read area). `base[1]` is the slot-column byte —
+    /// always `0` for the edit-buffer; non-zero when targeting a
+    /// USER/PRESET slot whose linear index doesn't divide evenly into
+    /// 128-slot rows (see [`crate::address::PatchSlot::address`]).
+    ///
+    /// One DT1 frame per byte for now — small and obviously correct;
+    /// the CLI can coalesce adjacent addresses later if it becomes
+    /// worth doing.
+    pub fn to_frames_at(
+        &self,
+        device_id: u8,
+        base: [u8; 4],
+    ) -> Result<Vec<Frame<'static>>, CodecError> {
+        let bytes = self.collect_bytes(base[0])?;
+        // `collect_bytes` always emits the slot-column byte as 0;
+        // splice in `base[1]` here so callers can target any slot
+        // address without rewriting every literal in collect_bytes.
         Ok(bytes
             .into_iter()
-            .map(|(addr, b)| Frame::Dt1 {
-                device_id,
-                address: addr,
-                data: std::borrow::Cow::Owned(vec![b]),
+            .map(|(mut addr, b)| {
+                addr[1] = base[1];
+                Frame::Dt1 {
+                    device_id,
+                    address: addr,
+                    data: std::borrow::Cow::Owned(vec![b]),
+                }
             })
             .collect())
     }
@@ -7181,6 +7243,73 @@ mod tests {
             "FloorBoard default patch should leave exactly 94 undocumented \
              padding bytes in unknown_bytes; any new typed-coverage commit \
              should reduce this and update the assertion"
+        );
+    }
+
+    /// `to_frames_at` + `from_frames_at_address` round-trip a patch
+    /// through an arbitrary 4-byte base — exercising the slot-column
+    /// byte that the simpler `to_frames` / `from_frames_at` pair
+    /// hardcodes to 0. This is the path the editor uses when writing
+    /// to and reading from USER slots whose linear index doesn't fall
+    /// on a row boundary (e.g. User 01:2 at `[0x20, 0x01, 0, 0]`).
+    #[test]
+    fn to_and_from_frames_at_arbitrary_base_round_trip() {
+        let original = crate::default_patch::new_init_patch();
+
+        // User 01:2 — first slot whose column byte is non-zero.
+        let user_01_2 = crate::address::PatchSlot::user(1, 2)
+            .expect("User 01:2 is a valid slot")
+            .address();
+        assert_eq!(user_01_2[1], 0x01, "expected slot column byte 0x01");
+
+        let frames = original
+            .to_frames_at(0x10, user_01_2)
+            .expect("encode succeeds");
+
+        // Every emitted frame must carry the slot's column byte.
+        for f in &frames {
+            assert_eq!(
+                f.address()[0],
+                user_01_2[0],
+                "frame MSB should match slot MSB"
+            );
+            assert_eq!(
+                f.address()[1],
+                user_01_2[1],
+                "frame slot-column byte should match slot column"
+            );
+        }
+
+        let decoded = PatchArea::from_frames_at_address(&frames, user_01_2);
+        assert_eq!(
+            decoded, original,
+            "round-trip through to_frames_at + from_frames_at_address \
+             should preserve the patch"
+        );
+    }
+
+    /// `from_frames_at_address` filters frames by slot — frames at a
+    /// different slot column should be ignored.
+    #[test]
+    fn from_frames_at_address_filters_by_slot_column() {
+        let original = crate::default_patch::new_init_patch();
+
+        let user_01_2 = crate::address::PatchSlot::user(1, 2)
+            .expect("User 01:2")
+            .address();
+        let user_01_3 = crate::address::PatchSlot::user(1, 3)
+            .expect("User 01:3")
+            .address();
+
+        let frames_01_2 = original.to_frames_at(0x10, user_01_2).unwrap();
+
+        // Decoding at the wrong slot's address should yield a default
+        // (no fields populated).
+        let decoded_wrong = PatchArea::from_frames_at_address(&frames_01_2, user_01_3);
+        assert_eq!(
+            decoded_wrong,
+            PatchArea::default(),
+            "decoding at the wrong slot should ignore all frames"
         );
     }
 }

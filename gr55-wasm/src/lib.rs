@@ -172,10 +172,30 @@ pub fn decode_patch_sysex(bytes: &[u8], base_msb: u8) -> PatchArea {
     PatchArea::from_frames_at(&frames, base_msb)
 }
 
+/// Decode raw SysEx bytes into a typed `PatchArea`, filtering against
+/// a specific 4-byte slot base address. Use when loading from a USER
+/// or PRESET slot whose wire address has a non-zero slot-column byte
+/// (most slots — see `userPatchAddress` / `presetPatchAddress`).
+#[wasm_bindgen(js_name = decodePatchSysexAt)]
+pub fn decode_patch_sysex_at(bytes: &[u8], address: &[u8]) -> Result<PatchArea, JsValue> {
+    let addr = require_address_4(address)?;
+    let frames: Vec<Frame<'static>> = parse_frames_unchecked(bytes)
+        .filter_map(|r| r.ok())
+        .map(|(f, _)| f.into_owned())
+        .collect();
+    Ok(PatchArea::from_frames_at_address(&frames, addr))
+}
+
 /// Encode a typed `PatchArea` into raw SysEx bytes ready to send via
 /// Web MIDI. `device_id` is the Roland device ID byte (commonly `0x10`);
 /// `base_msb` is the destination area MSB — `0x18` for live TEMP RAM,
 /// `0x20`+slot encoding for USER storage (see `userPatchAddress`).
+///
+/// **Note**: only works for slots whose wire address has the slot-column
+/// byte equal to 0 (the edit buffer at `0x18:00`, and USER 01:1, 44:1,
+/// 87:1 only). For arbitrary slots use [`encode_patch_to_sysex_at`]
+/// with the full 4-byte address from `userPatchAddress` /
+/// `presetPatchAddress`.
 #[wasm_bindgen(js_name = encodePatchToSysex)]
 pub fn encode_patch_to_sysex(
     patch: PatchArea,
@@ -183,6 +203,26 @@ pub fn encode_patch_to_sysex(
     base_msb: u8,
 ) -> Result<Vec<u8>, JsValue> {
     let frames = patch.to_frames(device_id, base_msb).map_err(js_err)?;
+    let mut out = Vec::new();
+    for frame in &frames {
+        out.extend(frame.encode());
+    }
+    Ok(out)
+}
+
+/// Encode a typed `PatchArea` into raw SysEx bytes at an arbitrary
+/// 4-byte base address. Use with `userPatchAddress(bank, position)` or
+/// `presetPatchAddress(bank, position)` to write a patch to any USER
+/// or PRESET slot (most slots have a non-zero column byte and aren't
+/// reachable through [`encode_patch_to_sysex`]).
+#[wasm_bindgen(js_name = encodePatchToSysexAt)]
+pub fn encode_patch_to_sysex_at(
+    patch: PatchArea,
+    device_id: u8,
+    address: &[u8],
+) -> Result<Vec<u8>, JsValue> {
+    let addr = require_address_4(address)?;
+    let frames = patch.to_frames_at(device_id, addr).map_err(js_err)?;
     let mut out = Vec::new();
     for frame in &frames {
         out.extend(frame.encode());
