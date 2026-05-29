@@ -589,6 +589,456 @@ impl AssignWaveForm {
     }
 }
 
+/// MFX effect type selector at page `0x03` (or `0x04` for MFX 2)
+/// offset `0x05`. 20 variants. Mined from FloorBoard `midi.xml:40735-40755`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MfxType {
+    Equalizer,
+    SuperFilter,
+    Phaser,
+    StepPhaser,
+    RingModulator,
+    Tremolo,
+    AutoPan,
+    Slicer,
+    VkRotary,
+    HexaChorus,
+    SpaceD,
+    Flanger,
+    StepFlanger,
+    GuitarAmpSim,
+    Compressor,
+    Limiter,
+    ThreeTapPanDelay,
+    TimeCtrlDelay,
+    LofiCompressor,
+    PitchShifter,
+}
+
+impl MfxType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use MfxType::*;
+        Some(match b {
+            0x00 => Equalizer,
+            0x01 => SuperFilter,
+            0x02 => Phaser,
+            0x03 => StepPhaser,
+            0x04 => RingModulator,
+            0x05 => Tremolo,
+            0x06 => AutoPan,
+            0x07 => Slicer,
+            0x08 => VkRotary,
+            0x09 => HexaChorus,
+            0x0A => SpaceD,
+            0x0B => Flanger,
+            0x0C => StepFlanger,
+            0x0D => GuitarAmpSim,
+            0x0E => Compressor,
+            0x0F => Limiter,
+            0x10 => ThreeTapPanDelay,
+            0x11 => TimeCtrlDelay,
+            0x12 => LofiCompressor,
+            0x13 => PitchShifter,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use MfxType::*;
+        match self {
+            Equalizer => 0x00,
+            SuperFilter => 0x01,
+            Phaser => 0x02,
+            StepPhaser => 0x03,
+            RingModulator => 0x04,
+            Tremolo => 0x05,
+            AutoPan => 0x06,
+            Slicer => 0x07,
+            VkRotary => 0x08,
+            HexaChorus => 0x09,
+            SpaceD => 0x0A,
+            Flanger => 0x0B,
+            StepFlanger => 0x0C,
+            GuitarAmpSim => 0x0D,
+            Compressor => 0x0E,
+            Limiter => 0x0F,
+            ThreeTapPanDelay => 0x10,
+            TimeCtrlDelay => 0x11,
+            LofiCompressor => 0x12,
+            PitchShifter => 0x13,
+        }
+    }
+}
+
+/// MFX EQ "Low" band frequency (2 settings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EqLowFreq {
+    Hz200,
+    Hz400,
+}
+
+impl EqLowFreq {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Hz200),
+            0x01 => Some(Self::Hz400),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::Hz200 => 0x00,
+            Self::Hz400 => 0x01,
+        }
+    }
+}
+
+/// MFX EQ "Mid" band frequency (17 settings, 200Hz..=8.0kHz).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EqMidFreq {
+    Hz200,
+    Hz250,
+    Hz315,
+    Hz400,
+    Hz500,
+    Hz630,
+    Hz800,
+    Khz1_0,
+    Khz1_25,
+    Khz1_6,
+    Khz2_0,
+    Khz2_5,
+    Khz3_15,
+    Khz4_0,
+    Khz5_0,
+    Khz6_3,
+    Khz8_0,
+}
+
+impl EqMidFreq {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use EqMidFreq::*;
+        Some(match b {
+            0x00 => Hz200,
+            0x01 => Hz250,
+            0x02 => Hz315,
+            0x03 => Hz400,
+            0x04 => Hz500,
+            0x05 => Hz630,
+            0x06 => Hz800,
+            0x07 => Khz1_0,
+            0x08 => Khz1_25,
+            0x09 => Khz1_6,
+            0x0A => Khz2_0,
+            0x0B => Khz2_5,
+            0x0C => Khz3_15,
+            0x0D => Khz4_0,
+            0x0E => Khz5_0,
+            0x0F => Khz6_3,
+            0x10 => Khz8_0,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use EqMidFreq::*;
+        match self {
+            Hz200 => 0x00,
+            Hz250 => 0x01,
+            Hz315 => 0x02,
+            Hz400 => 0x03,
+            Hz500 => 0x04,
+            Hz630 => 0x05,
+            Hz800 => 0x06,
+            Khz1_0 => 0x07,
+            Khz1_25 => 0x08,
+            Khz1_6 => 0x09,
+            Khz2_0 => 0x0A,
+            Khz2_5 => 0x0B,
+            Khz3_15 => 0x0C,
+            Khz4_0 => 0x0D,
+            Khz5_0 => 0x0E,
+            Khz6_3 => 0x0F,
+            Khz8_0 => 0x10,
+        }
+    }
+}
+
+/// MFX EQ "Mid" band Q factor (5 settings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EqMidQ {
+    Q0_5,
+    Q1,
+    Q2,
+    Q4,
+    Q8,
+}
+
+impl EqMidQ {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Q0_5),
+            0x01 => Some(Self::Q1),
+            0x02 => Some(Self::Q2),
+            0x03 => Some(Self::Q4),
+            0x04 => Some(Self::Q8),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::Q0_5 => 0x00,
+            Self::Q1 => 0x01,
+            Self::Q2 => 0x02,
+            Self::Q4 => 0x03,
+            Self::Q8 => 0x04,
+        }
+    }
+}
+
+/// MFX EQ "High" band frequency (3 settings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EqHighFreq {
+    Khz2_0,
+    Khz4_0,
+    Khz8_0,
+}
+
+impl EqHighFreq {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Khz2_0),
+            0x01 => Some(Self::Khz4_0),
+            0x02 => Some(Self::Khz8_0),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::Khz2_0 => 0x00,
+            Self::Khz4_0 => 0x01,
+            Self::Khz8_0 => 0x02,
+        }
+    }
+}
+
+/// One MFX slot. Pages `0x03` and `0x04` of the Patch model each hold one
+/// of these (`PatchArea::mfx[0]` and `PatchArea::mfx[1]`).
+///
+/// Common header (sends, switch, type, pan) and the 11-byte EQ block at
+/// offsets `0x00..=0x11` are typed. The remaining 110 bytes
+/// (`0x12..=0x7F`) form an MFX-type-dependent parameter block that this
+/// commit keeps in `raw_tail` for lossless round-trip; per-type sum
+/// modelling is deferred to a follow-up.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Mfx {
+    // Common header (0x00..=0x06).
+    /// Chorus Send (raw 0..=100) at offset `0x00`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chorus_send: Option<u8>,
+    /// Delay Send at `0x01`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay_send: Option<u8>,
+    /// Reverb Send at `0x02`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reverb_send: Option<u8>,
+    /// FloorBoard labels offset `0x03` as `name="reserved"` with no
+    /// `customdesc` and full 0..=255 range. Round-tripped as raw u8.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reserved: Option<u8>,
+    /// MFX Switch at `0x04`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub switch: Option<OnOff>,
+    /// MFX Type selector at `0x05`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mfx_type: Option<MfxType>,
+    /// MFX Pan at `0x06` — raw 0..=100 representing the device's L50..R50
+    /// position scale (0 = L50, 50 = center, 100 = R50).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pan: Option<u8>,
+
+    // EQ block (0x07..=0x11) — always present, independent of MFX type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eq_low_freq: Option<EqLowFreq>,
+    /// Low Gain at `0x08` (wire `0x00..=0x1E` = -15..=+15 dB). Raw byte.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eq_low_gain: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eq_mid1_freq: Option<EqMidFreq>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eq_mid1_gain: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eq_mid1_q: Option<EqMidQ>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eq_mid2_freq: Option<EqMidFreq>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eq_mid2_gain: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eq_mid2_q: Option<EqMidQ>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eq_high_freq: Option<EqHighFreq>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eq_high_gain: Option<u8>,
+    /// EQ Level at `0x11` (raw 0..=127).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eq_level: Option<u8>,
+
+    /// Every byte at offset `0x12..=0x7F` that this commit doesn't model
+    /// yet. Keyed by offset within the MFX page.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub raw_tail: BTreeMap<u8, u8>,
+}
+
+impl Mfx {
+    /// Try to absorb a single byte at offset `off` (0..=0x7F). Returns
+    /// false if the byte hit a typed slot but failed validation, so the
+    /// caller can route it to `unknown_bytes` instead.
+    fn store_byte(&mut self, off: u8, b: u8) -> bool {
+        match off {
+            0x00 if b <= 100 => {
+                self.chorus_send = Some(b);
+                true
+            }
+            0x01 if b <= 100 => {
+                self.delay_send = Some(b);
+                true
+            }
+            0x02 if b <= 100 => {
+                self.reverb_send = Some(b);
+                true
+            }
+            0x03 => {
+                self.reserved = Some(b);
+                true
+            }
+            0x04 => match OnOff::from_byte(b) {
+                Some(v) => {
+                    self.switch = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x05 => match MfxType::from_byte(b) {
+                Some(v) => {
+                    self.mfx_type = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x06 if b <= 100 => {
+                self.pan = Some(b);
+                true
+            }
+            0x07 => match EqLowFreq::from_byte(b) {
+                Some(v) => {
+                    self.eq_low_freq = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x08 if b <= 0x1E => {
+                self.eq_low_gain = Some(b);
+                true
+            }
+            0x09 => match EqMidFreq::from_byte(b) {
+                Some(v) => {
+                    self.eq_mid1_freq = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x0A if b <= 0x1E => {
+                self.eq_mid1_gain = Some(b);
+                true
+            }
+            0x0B => match EqMidQ::from_byte(b) {
+                Some(v) => {
+                    self.eq_mid1_q = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x0C => match EqMidFreq::from_byte(b) {
+                Some(v) => {
+                    self.eq_mid2_freq = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x0D if b <= 0x1E => {
+                self.eq_mid2_gain = Some(b);
+                true
+            }
+            0x0E => match EqMidQ::from_byte(b) {
+                Some(v) => {
+                    self.eq_mid2_q = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x0F => match EqHighFreq::from_byte(b) {
+                Some(v) => {
+                    self.eq_high_freq = Some(v);
+                    true
+                }
+                None => false,
+            },
+            0x10 if b <= 0x1E => {
+                self.eq_high_gain = Some(b);
+                true
+            }
+            0x11 if b <= 0x7F => {
+                self.eq_level = Some(b);
+                true
+            }
+            // Type-specific tail — deferred sum-type modelling.
+            0x12..=0x7F => {
+                self.raw_tail.insert(off, b);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn emit_bytes(&self, bytes: &mut BTreeMap<[u8; 4], u8>, base_msb: u8, page: u8) {
+        macro_rules! put {
+            ($off:expr, $val:expr) => {
+                if let Some(v) = $val {
+                    bytes.insert([base_msb, page, 0x00, $off], v);
+                }
+            };
+        }
+        put!(0x00, self.chorus_send);
+        put!(0x01, self.delay_send);
+        put!(0x02, self.reverb_send);
+        put!(0x03, self.reserved);
+        put!(0x04, self.switch.map(OnOff::to_byte));
+        put!(0x05, self.mfx_type.map(MfxType::to_byte));
+        put!(0x06, self.pan);
+        put!(0x07, self.eq_low_freq.map(EqLowFreq::to_byte));
+        put!(0x08, self.eq_low_gain);
+        put!(0x09, self.eq_mid1_freq.map(EqMidFreq::to_byte));
+        put!(0x0A, self.eq_mid1_gain);
+        put!(0x0B, self.eq_mid1_q.map(EqMidQ::to_byte));
+        put!(0x0C, self.eq_mid2_freq.map(EqMidFreq::to_byte));
+        put!(0x0D, self.eq_mid2_gain);
+        put!(0x0E, self.eq_mid2_q.map(EqMidQ::to_byte));
+        put!(0x0F, self.eq_high_freq.map(EqHighFreq::to_byte));
+        put!(0x10, self.eq_high_gain);
+        put!(0x11, self.eq_level);
+        for (off, b) in &self.raw_tail {
+            bytes.insert([base_msb, page, 0x00, *off], *b);
+        }
+    }
+}
+
+fn all_mfx_none(arr: &[Option<Mfx>; 2]) -> bool {
+    arr.iter().all(Option::is_none)
+}
+
 /// GK Set selector at page `0x02` offset `0x24`. 11 variants: System
 /// (= follow the global system-area setting) plus the 10 per-patch
 /// overrides. Mined from FloorBoard `midi.xml:39880-39895`.
@@ -1542,6 +1992,14 @@ pub struct PatchArea {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gk_vol_mod_max_envelope: Option<u8>,
 
+    /// The 2 MFX slots: `mfx[0]` lives on page `0x03`, `mfx[1]` on page
+    /// `0x04`. Each Mfx holds the typed common header + EQ block at
+    /// offsets `0x00..=0x11`; the MFX-type-dependent tail at `0x12..=0x7F`
+    /// is preserved verbatim in `Mfx::raw_tail` pending sum-type
+    /// modelling.
+    #[serde(default, skip_serializing_if = "all_mfx_none")]
+    pub mfx: [Option<Mfx>; 2],
+
     /// Everything inside the patch payload that the typed model doesn't yet
     /// cover. Keys are formatted `"PP:HH:LL"` — page byte, then the two
     /// in-page offset bytes.
@@ -1803,6 +2261,14 @@ impl PatchArea {
             (0x02, 0x00, 0x45) if b <= 127 => self.exp_on_mod_max_envelope = Some(b),
             (0x02, 0x00, 0x46) if b <= 127 => self.gk_vol_mod_min_envelope = Some(b),
             (0x02, 0x00, 0x47) if b <= 127 => self.gk_vol_mod_max_envelope = Some(b),
+            // MFX slots: page 0x03 = mfx[0], page 0x04 = mfx[1].
+            (0x03, 0x00, off) | (0x04, 0x00, off) => {
+                let idx = (page - 0x03) as usize;
+                let mfx = self.mfx[idx].get_or_insert_with(Mfx::default);
+                if !mfx.store_byte(off, b) {
+                    self.unknown_bytes.insert(format_key(page, hi, lo), b);
+                }
+            }
             _ => {
                 self.unknown_bytes.insert(format_key(page, hi, lo), b);
             }
@@ -2253,6 +2719,12 @@ impl PatchArea {
         if let Some(v) = self.gk_vol_mod_max_envelope {
             bytes.insert([base_msb, 0x02, 0x00, 0x47], v);
         }
+        // MFX slots
+        for (idx, slot) in self.mfx.iter().enumerate() {
+            if let Some(mfx) = slot {
+                mfx.emit_bytes(&mut bytes, base_msb, 0x03 + idx as u8);
+            }
+        }
         for (k, b) in &self.unknown_bytes {
             let (page, hi, lo) =
                 parse_key(k).ok_or_else(|| CodecError::BadStoredAddress(k.clone()))?;
@@ -2677,17 +3149,19 @@ mod tests {
     fn payload_carries_lo_at_7f_to_next_hi() {
         // A 3-byte payload starting at lo=0x7E should land at lo=0x7E,
         // lo=0x7F, then (hi=0x01, lo=0x00) — NOT (hi=0x00, lo=0x80).
+        // Use page 0x20 (PCM-1-A), which isn't typed yet, so the bytes
+        // fall through to unknown_bytes where we can inspect them.
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x04, 0x00, 0x7E], // page 0x04 (MFX 2) so no typed match
+            address: [TEMP_MSB, 0x20, 0x00, 0x7E],
             data: Cow::Owned(vec![0xA1, 0xA2, 0xA3]),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
-        assert_eq!(area.unknown_bytes.get("04:00:7E"), Some(&0xA1));
-        assert_eq!(area.unknown_bytes.get("04:00:7F"), Some(&0xA2));
-        assert_eq!(area.unknown_bytes.get("04:01:00"), Some(&0xA3));
+        assert_eq!(area.unknown_bytes.get("20:00:7E"), Some(&0xA1));
+        assert_eq!(area.unknown_bytes.get("20:00:7F"), Some(&0xA2));
+        assert_eq!(area.unknown_bytes.get("20:01:00"), Some(&0xA3));
         // The wrong (overflow-to-0x80) behaviour would surface here:
-        assert!(!area.unknown_bytes.contains_key("04:00:80"));
+        assert!(!area.unknown_bytes.contains_key("20:00:80"));
     }
 
     #[test]
@@ -2906,6 +3380,89 @@ mod tests {
         // Round-trip preserves everything.
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
+    }
+
+    #[test]
+    fn mfx_block_decodes_header_eq_and_preserves_tail() {
+        let mut payload = vec![
+            70,                              // 0x00 chorus_send
+            45,                              // 0x01 delay_send
+            30,                              // 0x02 reverb_send
+            0xAB,                            // 0x03 reserved (raw)
+            OnOff::On.to_byte(),             // 0x04 switch
+            MfxType::Phaser.to_byte(),       // 0x05 type
+            50,                              // 0x06 pan (= center)
+            EqLowFreq::Hz400.to_byte(),      // 0x07
+            0x10,                            // 0x08 low_gain
+            EqMidFreq::Khz1_0.to_byte(),     // 0x09
+            0x12,                            // 0x0A mid1_gain
+            EqMidQ::Q2.to_byte(),            // 0x0B
+            EqMidFreq::Khz3_15.to_byte(),    // 0x0C
+            0x0F,                            // 0x0D mid2_gain
+            EqMidQ::Q4.to_byte(),            // 0x0E
+            EqHighFreq::Khz4_0.to_byte(),    // 0x0F
+            0x14,                            // 0x10 high_gain
+            0x60,                            // 0x11 eq_level
+        ];
+        // Add 5 bytes into the type-specific tail so we can verify they
+        // survive in raw_tail.
+        payload.extend([0xC1, 0xC2, 0xC3, 0xC4, 0xC5]); // 0x12..=0x16
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x03, 0x00, 0x00], // MFX slot 0
+            data: Cow::Owned(payload),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+        let m = area.mfx[0].as_ref().expect("mfx[0] should decode");
+        assert_eq!(m.chorus_send, Some(70));
+        assert_eq!(m.delay_send, Some(45));
+        assert_eq!(m.reverb_send, Some(30));
+        assert_eq!(m.reserved, Some(0xAB));
+        assert_eq!(m.switch, Some(OnOff::On));
+        assert_eq!(m.mfx_type, Some(MfxType::Phaser));
+        assert_eq!(m.pan, Some(50));
+        assert_eq!(m.eq_low_freq, Some(EqLowFreq::Hz400));
+        assert_eq!(m.eq_low_gain, Some(0x10));
+        assert_eq!(m.eq_mid1_freq, Some(EqMidFreq::Khz1_0));
+        assert_eq!(m.eq_mid1_q, Some(EqMidQ::Q2));
+        assert_eq!(m.eq_mid2_freq, Some(EqMidFreq::Khz3_15));
+        assert_eq!(m.eq_mid2_q, Some(EqMidQ::Q4));
+        assert_eq!(m.eq_high_freq, Some(EqHighFreq::Khz4_0));
+        assert_eq!(m.eq_high_gain, Some(0x14));
+        assert_eq!(m.eq_level, Some(0x60));
+        // Type-specific tail survived in raw_tail.
+        assert_eq!(m.raw_tail.get(&0x12), Some(&0xC1));
+        assert_eq!(m.raw_tail.get(&0x16), Some(&0xC5));
+        assert!(area.mfx[1].is_none());
+
+        // Round-trip
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
+    }
+
+    #[test]
+    fn mfx_slot_1_lives_on_page_04() {
+        // A single byte at page 0x04 should populate mfx[1], not mfx[0].
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x04, 0x00, 0x05], // MFX 2, type byte
+            data: Cow::Owned(vec![MfxType::Compressor.to_byte()]),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+        assert!(area.mfx[0].is_none());
+        assert_eq!(
+            area.mfx[1].as_ref().unwrap().mfx_type,
+            Some(MfxType::Compressor)
+        );
+    }
+
+    #[test]
+    fn mfx_type_byte_symmetry() {
+        for raw in 0x00_u8..=0x13 {
+            let v = MfxType::from_byte(raw).expect("from_byte");
+            assert_eq!(v.to_byte(), raw, "mismatch for 0x{raw:02X}");
+        }
+        assert!(MfxType::from_byte(0x14).is_none());
     }
 
     #[test]
