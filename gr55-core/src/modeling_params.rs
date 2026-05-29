@@ -32,7 +32,7 @@
 //! document). 14 bytes are shared across multiple types, 113 are owned
 //! by a single type, 87 are common (mode-bridging / NS / placeholder).
 
-include!(concat!(env!("OUT_DIR"), "/modeling_params.rs"));
+include!("generated/modeling_params.rs");
 
 #[cfg(test)]
 mod tests {

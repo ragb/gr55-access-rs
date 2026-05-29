@@ -1,11 +1,8 @@
-//! GR-55 address-map metadata, generated at build time from
-//! [`data/midi.xml`](../data/midi.xml) — see [`build.rs`](../build.rs).
-//!
-//! The map itself is FloorBoard's reverse-engineered `midi.xml`
-//! (Colin Willcocks, GPL-2-or-later; see [`data/NOTICE.md`](../data/NOTICE.md));
-//! the runtime never parses XML.
+//! GR-55 address-map metadata — static `SYSTEM_PARAMETERS`,
+//! `STRUCTURE_PARAMETERS`, `TABLES_PARAMETERS`, `MPT_PARAMETERS`
+//! tables embedded as committed source ([`generated/midi_map.rs`]).
 
-include!(concat!(env!("OUT_DIR"), "/midi_map.rs"));
+include!("generated/midi_map.rs");
 
 #[cfg(test)]
 mod tests {

@@ -26,7 +26,7 @@
 //! the type-byte at offset `0x05` for active-range selection captures
 //! the wire model exactly.
 
-include!(concat!(env!("OUT_DIR"), "/mfx_params.rs"));
+include!("generated/mfx_params.rs");
 
 #[cfg(test)]
 mod tests {

@@ -1,25 +1,14 @@
 //! Static metadata for every byte of a PCM tone's **tail page**
 //! (page `0x30` for Tone 1, `0x31` for Tone 2).
 //!
-//! FloorBoard `midi.xml` tags every byte at these addresses with
-//! `customdesc="null"` — the XML has no information here. But the
-//! complete byte-to-parameter mapping lives in FloorBoard's *C++
-//! source*, specifically [`soundSource_synth_a.cpp`] (Tone 1) and
-//! [`soundSource_synth_b.cpp`] (Tone 2), which wire each editor knob
-//! to the appropriate `("30"/"31", "00", "XX")` address.
+//! Parameter names match Roland's GR-55 Owner's Manual (pages 25-27,
+//! "Parameter List PCM TONE 1/PCM TONE 2"). Byte offsets are facts
+//! about Roland's MIDI protocol (Feist v. Rural Telephone, 1991) —
+//! not user-facing in the OM but discoverable from any GR-55 editor.
 //!
 //! Both tones share an identical tail layout — only the wire page byte
 //! differs (0x30 vs 0x31). This table records the layout once and is
 //! applied to either tone via [`crate::patch::Pcm::iter_tail_params`].
-//!
-//! Parameter names match the owner's manual (pages 25–27, "Parameter
-//! List PCM TONE 1/PCM TONE 2"). The byte offsets are confirmed
-//! against FloorBoard C++ source. Value-range / enum-variant metadata
-//! is intentionally omitted from this table — it gets added by the
-//! follow-up "rich table" pass with owner's manual help text.
-//!
-//! [`soundSource_synth_a.cpp`]: https://sourceforge.net/p/grfloorboard/code/
-//! [`soundSource_synth_b.cpp`]: https://sourceforge.net/p/grfloorboard/code/
 
 /// Group label for one tail-page parameter. The owner's manual organizes
 /// PCM tone params into these 6 groups (plus the always-typed common
