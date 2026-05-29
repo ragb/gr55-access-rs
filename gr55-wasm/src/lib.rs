@@ -293,10 +293,7 @@ struct ParamView {
 fn enum_values(values: &'static [(u8, &'static str)]) -> Vec<EnumValue> {
     values
         .iter()
-        .map(|(b, l)| EnumValue {
-            byte: *b,
-            label: *l,
-        })
+        .map(|&(byte, label)| EnumValue { byte, label })
         .collect()
 }
 
