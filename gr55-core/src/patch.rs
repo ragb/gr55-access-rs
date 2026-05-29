@@ -2039,6 +2039,24 @@ impl Pcm {
             bytes.insert([base_msb, tail_page, 0x00, *off], *b);
         }
     }
+
+    /// Iterate this tone's set tail bytes paired with their FloorBoard
+    /// metadata from [`crate::pcm_tail_params::PCM_TAIL_PARAMS`]. Bytes
+    /// at offsets `0x28..=0x7F` (FloorBoard-undocumented) yield `None`
+    /// for the metadata slot.
+    pub fn iter_tail_params(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            u8,
+            u8,
+            Option<&'static crate::pcm_tail_params::PcmTailParamEntry>,
+        ),
+    > + '_ {
+        self.raw_tail
+            .iter()
+            .map(|(&off, &b)| (off, b, crate::pcm_tail_params::param_for(off)))
+    }
 }
 
 fn all_pcm_none(arr: &[Option<Pcm>; 2]) -> bool {
@@ -6569,6 +6587,45 @@ mod tests {
         // pending_bank since synth_tone is None).
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
+    }
+
+    #[test]
+    fn pcm_iter_tail_params_pairs_bytes_with_table() {
+        let mut pcm = Pcm::default();
+        // Filter Type (0x00), Cutoff (0x01), Portamento Type (0x1B),
+        // LFO2 Rate (0x22), and one out-of-range byte at 0x30.
+        pcm.raw_tail.insert(0x00, 2);  // LPF
+        pcm.raw_tail.insert(0x01, 64);
+        pcm.raw_tail.insert(0x1B, 1);  // TIME
+        pcm.raw_tail.insert(0x22, 50);
+        pcm.raw_tail.insert(0x30, 0x99);
+
+        let collected: Vec<_> = pcm.iter_tail_params().collect();
+        let by_off: std::collections::BTreeMap<u8, (u8, Option<&str>, Option<crate::pcm_tail_params::PcmTailGroup>)> =
+            collected
+                .iter()
+                .map(|(off, b, entry)| {
+                    (
+                        *off,
+                        (*b, entry.map(|e| e.name), entry.map(|e| e.group)),
+                    )
+                })
+                .collect();
+
+        assert_eq!(
+            by_off.get(&0x00),
+            Some(&(2, Some("Filter Type"), Some(crate::pcm_tail_params::PcmTailGroup::Filter)))
+        );
+        assert_eq!(
+            by_off.get(&0x1B),
+            Some(&(1, Some("Portamento Type"), Some(crate::pcm_tail_params::PcmTailGroup::Portamento)))
+        );
+        assert_eq!(
+            by_off.get(&0x22),
+            Some(&(50, Some("LFO2 Rate"), Some(crate::pcm_tail_params::PcmTailGroup::Lfo)))
+        );
+        // 0x30 is beyond the documented range — metadata is None.
+        assert_eq!(by_off.get(&0x30), Some(&(0x99, None, None)));
     }
 
     #[test]
