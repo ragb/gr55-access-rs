@@ -59,6 +59,11 @@ use crate::system::{
 pub struct PatchName(
     #[serde(with = "patch_name_serde")]
     #[cfg_attr(feature = "schema", schemars(schema_with = "patch_name_serde::schema"))]
+    // Custom serde (`patch_name_serde`) projects this to a JSON/YAML
+    // string; tsify-next can't see through the serializer, so override
+    // the JS-side type explicitly so consumers see `string`, not
+    // `[number; 16]`.
+    #[cfg_attr(feature = "tsify", tsify(type = "string"))]
     pub [u8; 16],
 );
 
