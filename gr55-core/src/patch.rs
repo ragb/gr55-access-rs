@@ -1039,6 +1039,451 @@ fn all_mfx_none(arr: &[Option<Mfx>; 2]) -> bool {
     arr.iter().all(Option::is_none)
 }
 
+/// Chorus algorithm at page `0x06` offset `0x01`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChorusType {
+    Mono,
+    Stereo,
+    MonoMild,
+    StereoMild,
+}
+
+impl ChorusType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use ChorusType::*;
+        Some(match b {
+            0x00 => Mono,
+            0x01 => Stereo,
+            0x02 => MonoMild,
+            0x03 => StereoMild,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use ChorusType::*;
+        match self {
+            Mono => 0x00,
+            Stereo => 0x01,
+            MonoMild => 0x02,
+            StereoMild => 0x03,
+        }
+    }
+}
+
+/// Delay algorithm at page `0x06` offset `0x06`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DelayType {
+    Single,
+    Pan,
+    Reverse,
+    Analog,
+    Tape,
+    Modulate,
+    HiCut,
+}
+
+impl DelayType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use DelayType::*;
+        Some(match b {
+            0x00 => Single,
+            0x01 => Pan,
+            0x02 => Reverse,
+            0x03 => Analog,
+            0x04 => Tape,
+            0x05 => Modulate,
+            0x06 => HiCut,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use DelayType::*;
+        match self {
+            Single => 0x00,
+            Pan => 0x01,
+            Reverse => 0x02,
+            Analog => 0x03,
+            Tape => 0x04,
+            Modulate => 0x05,
+            HiCut => 0x06,
+        }
+    }
+}
+
+/// Reverb algorithm at page `0x06` offset `0x0D`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReverbType {
+    Ambience,
+    Room,
+    Hall1,
+    Hall2,
+    Plate,
+}
+
+impl ReverbType {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use ReverbType::*;
+        Some(match b {
+            0x00 => Ambience,
+            0x01 => Room,
+            0x02 => Hall1,
+            0x03 => Hall2,
+            0x04 => Plate,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use ReverbType::*;
+        match self {
+            Ambience => 0x00,
+            Room => 0x01,
+            Hall1 => 0x02,
+            Hall2 => 0x03,
+            Plate => 0x04,
+        }
+    }
+}
+
+/// Reverb High Cut at page `0x06` offset `0x0F` (10 settings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReverbHighCut {
+    Hz700,
+    Khz1_0,
+    Khz1_4,
+    Khz2_0,
+    Khz3_0,
+    Khz4_0,
+    Khz6_0,
+    Khz8_0,
+    Khz11,
+    Flat,
+}
+
+impl ReverbHighCut {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use ReverbHighCut::*;
+        Some(match b {
+            0x00 => Hz700,
+            0x01 => Khz1_0,
+            0x02 => Khz1_4,
+            0x03 => Khz2_0,
+            0x04 => Khz3_0,
+            0x05 => Khz4_0,
+            0x06 => Khz6_0,
+            0x07 => Khz8_0,
+            0x08 => Khz11,
+            0x09 => Flat,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use ReverbHighCut::*;
+        match self {
+            Hz700 => 0x00,
+            Khz1_0 => 0x01,
+            Khz1_4 => 0x02,
+            Khz2_0 => 0x03,
+            Khz3_0 => 0x04,
+            Khz4_0 => 0x05,
+            Khz6_0 => 0x06,
+            Khz8_0 => 0x07,
+            Khz11 => 0x08,
+            Flat => 0x09,
+        }
+    }
+}
+
+/// Patch EQ Lo Cut at page `0x06` offset `0x12` (11 settings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatchEqLoCut {
+    Flat,
+    Hz55,
+    Hz110,
+    Hz165,
+    Hz200,
+    Hz280,
+    Hz340,
+    Hz400,
+    Hz500,
+    Hz630,
+    Hz800,
+}
+
+impl PatchEqLoCut {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use PatchEqLoCut::*;
+        Some(match b {
+            0x00 => Flat,
+            0x01 => Hz55,
+            0x02 => Hz110,
+            0x03 => Hz165,
+            0x04 => Hz200,
+            0x05 => Hz280,
+            0x06 => Hz340,
+            0x07 => Hz400,
+            0x08 => Hz500,
+            0x09 => Hz630,
+            0x0A => Hz800,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use PatchEqLoCut::*;
+        match self {
+            Flat => 0x00,
+            Hz55 => 0x01,
+            Hz110 => 0x02,
+            Hz165 => 0x03,
+            Hz200 => 0x04,
+            Hz280 => 0x05,
+            Hz340 => 0x06,
+            Hz400 => 0x07,
+            Hz500 => 0x08,
+            Hz630 => 0x09,
+            Hz800 => 0x0A,
+        }
+    }
+}
+
+/// Patch EQ Lo/Hi Mid Freq at page `0x06` offsets `0x14` and `0x17`
+/// (28 settings, 20Hz..=10kHz). Reused for both bands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatchEqMidFreq {
+    Hz20_0,
+    Hz25_0,
+    Hz31_5,
+    Hz40_0,
+    Hz50_0,
+    Hz63_0,
+    Hz80_0,
+    Hz100,
+    Hz125,
+    Hz160,
+    Hz200,
+    Hz250,
+    Hz315,
+    Hz400,
+    Hz500,
+    Hz630,
+    Hz800,
+    Khz1_00,
+    Khz1_25,
+    Khz1_60,
+    Khz2_00,
+    Khz2_50,
+    Khz3_15,
+    Khz4_00,
+    Khz5_00,
+    Khz6_30,
+    Khz8_00,
+    Khz10_0,
+}
+
+impl PatchEqMidFreq {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use PatchEqMidFreq::*;
+        Some(match b {
+            0x00 => Hz20_0,
+            0x01 => Hz25_0,
+            0x02 => Hz31_5,
+            0x03 => Hz40_0,
+            0x04 => Hz50_0,
+            0x05 => Hz63_0,
+            0x06 => Hz80_0,
+            0x07 => Hz100,
+            0x08 => Hz125,
+            0x09 => Hz160,
+            0x0A => Hz200,
+            0x0B => Hz250,
+            0x0C => Hz315,
+            0x0D => Hz400,
+            0x0E => Hz500,
+            0x0F => Hz630,
+            0x10 => Hz800,
+            0x11 => Khz1_00,
+            0x12 => Khz1_25,
+            0x13 => Khz1_60,
+            0x14 => Khz2_00,
+            0x15 => Khz2_50,
+            0x16 => Khz3_15,
+            0x17 => Khz4_00,
+            0x18 => Khz5_00,
+            0x19 => Khz6_30,
+            0x1A => Khz8_00,
+            0x1B => Khz10_0,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use PatchEqMidFreq::*;
+        match self {
+            Hz20_0 => 0x00,
+            Hz25_0 => 0x01,
+            Hz31_5 => 0x02,
+            Hz40_0 => 0x03,
+            Hz50_0 => 0x04,
+            Hz63_0 => 0x05,
+            Hz80_0 => 0x06,
+            Hz100 => 0x07,
+            Hz125 => 0x08,
+            Hz160 => 0x09,
+            Hz200 => 0x0A,
+            Hz250 => 0x0B,
+            Hz315 => 0x0C,
+            Hz400 => 0x0D,
+            Hz500 => 0x0E,
+            Hz630 => 0x0F,
+            Hz800 => 0x10,
+            Khz1_00 => 0x11,
+            Khz1_25 => 0x12,
+            Khz1_60 => 0x13,
+            Khz2_00 => 0x14,
+            Khz2_50 => 0x15,
+            Khz3_15 => 0x16,
+            Khz4_00 => 0x17,
+            Khz5_00 => 0x18,
+            Khz6_30 => 0x19,
+            Khz8_00 => 0x1A,
+            Khz10_0 => 0x1B,
+        }
+    }
+}
+
+/// Patch EQ Lo/Hi Mid Q at page `0x06` offsets `0x15` and `0x18`
+/// (6 settings). Reused for both bands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatchEqMidQ {
+    Q0_5,
+    Q1,
+    Q2,
+    Q4,
+    Q8,
+    Q16,
+}
+
+impl PatchEqMidQ {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Q0_5),
+            0x01 => Some(Self::Q1),
+            0x02 => Some(Self::Q2),
+            0x03 => Some(Self::Q4),
+            0x04 => Some(Self::Q8),
+            0x05 => Some(Self::Q16),
+            _ => None,
+        }
+    }
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Self::Q0_5 => 0x00,
+            Self::Q1 => 0x01,
+            Self::Q2 => 0x02,
+            Self::Q4 => 0x03,
+            Self::Q8 => 0x04,
+            Self::Q16 => 0x05,
+        }
+    }
+}
+
+/// Patch EQ High Cut at page `0x06` offset `0x1A` (10 settings,
+/// 700Hz..=11kHz + Flat). Same byte layout as [`ReverbHighCut`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatchEqHighCut {
+    Hz700,
+    Khz1_00,
+    Khz1_40,
+    Khz2_00,
+    Khz3_00,
+    Khz4_00,
+    Khz6_00,
+    Khz8_00,
+    Khz11_0,
+    Flat,
+}
+
+impl PatchEqHighCut {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use PatchEqHighCut::*;
+        Some(match b {
+            0x00 => Hz700,
+            0x01 => Khz1_00,
+            0x02 => Khz1_40,
+            0x03 => Khz2_00,
+            0x04 => Khz3_00,
+            0x05 => Khz4_00,
+            0x06 => Khz6_00,
+            0x07 => Khz8_00,
+            0x08 => Khz11_0,
+            0x09 => Flat,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use PatchEqHighCut::*;
+        match self {
+            Hz700 => 0x00,
+            Khz1_00 => 0x01,
+            Khz1_40 => 0x02,
+            Khz2_00 => 0x03,
+            Khz3_00 => 0x04,
+            Khz4_00 => 0x05,
+            Khz6_00 => 0x06,
+            Khz8_00 => 0x07,
+            Khz11_0 => 0x08,
+            Flat => 0x09,
+        }
+    }
+}
+
+/// Patch EQ Character at page `0x06` offset `0x1D` (-3..=+3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatchEqCharacter {
+    Minus3,
+    Minus2,
+    Minus1,
+    Zero,
+    Plus1,
+    Plus2,
+    Plus3,
+}
+
+impl PatchEqCharacter {
+    pub fn from_byte(b: u8) -> Option<Self> {
+        use PatchEqCharacter::*;
+        Some(match b {
+            0x00 => Minus3,
+            0x01 => Minus2,
+            0x02 => Minus1,
+            0x03 => Zero,
+            0x04 => Plus1,
+            0x05 => Plus2,
+            0x06 => Plus3,
+            _ => return None,
+        })
+    }
+    pub fn to_byte(self) -> u8 {
+        use PatchEqCharacter::*;
+        match self {
+            Minus3 => 0x00,
+            Minus2 => 0x01,
+            Minus1 => 0x02,
+            Zero => 0x03,
+            Plus1 => 0x04,
+            Plus2 => 0x05,
+            Plus3 => 0x06,
+        }
+    }
+}
+
 /// GK Set selector at page `0x02` offset `0x24`. 11 variants: System
 /// (= follow the global system-area setting) plus the 10 per-patch
 /// overrides. Mined from FloorBoard `midi.xml:39880-39895`.
@@ -2000,6 +2445,101 @@ pub struct PatchArea {
     #[serde(default, skip_serializing_if = "all_mfx_none")]
     pub mfx: [Option<Mfx>; 2],
 
+    // ---- Page 0x06: Chorus / Delay / Reverb / EQ (offsets 0x00..=0x1D) ----
+    /// Chorus switch at `0x06:00:00`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chorus_switch: Option<OnOff>,
+    /// Chorus algorithm at `0x06:00:01`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chorus_type: Option<ChorusType>,
+    /// Chorus rate at `0x06:00:02` (hybrid 0..=100 numeric or
+    /// 0x65..=0x71 named note-values, same shape as Assign wave_rate).
+    /// Stored as raw u8 with range guard 0x00..=0x71.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chorus_rate: Option<u8>,
+    /// Chorus depth at `0x06:00:03` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chorus_depth: Option<u8>,
+    /// Chorus level at `0x06:00:04` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chorus_level: Option<u8>,
+    /// Delay switch at `0x06:00:05`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay_switch: Option<OnOff>,
+    /// Delay algorithm at `0x06:00:06`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay_type: Option<DelayType>,
+    /// Delay time at `0x06:00:07` — only the first of three nibble bytes
+    /// has FloorBoard documentation; `_b` and `_c` are the companion
+    /// bytes (each 0..=15) kept lossless. Likely a single 12-bit time
+    /// value across three nibbles.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay_time: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay_time_b: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay_time_c: Option<u8>,
+    /// Delay feedback at `0x06:00:0A` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay_feedback: Option<u8>,
+    /// Delay level at `0x06:00:0B` (raw 0..=120).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay_level: Option<u8>,
+    /// Reverb switch at `0x06:00:0C`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reverb_switch: Option<OnOff>,
+    /// Reverb algorithm at `0x06:00:0D`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reverb_type: Option<ReverbType>,
+    /// Reverb time at `0x06:00:0E` (raw 0..=99, display 0.1s..=10.0s).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reverb_time: Option<u8>,
+    /// Reverb high cut at `0x06:00:0F`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reverb_high_cut: Option<ReverbHighCut>,
+    /// Reverb level at `0x06:00:10` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reverb_level: Option<u8>,
+    /// Patch EQ switch at `0x06:00:11`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_eq_switch: Option<OnOff>,
+    /// Patch EQ Lo Cut at `0x06:00:12`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_eq_lo_cut: Option<PatchEqLoCut>,
+    /// Patch EQ Low Gain at `0x06:00:13` (wire 0..=0x28 = -20..=+20 dB).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_eq_low_gain: Option<u8>,
+    /// Patch EQ Lo Mid Freq at `0x06:00:14`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_eq_lo_mid_freq: Option<PatchEqMidFreq>,
+    /// Patch EQ Lo Mid Q at `0x06:00:15`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_eq_lo_mid_q: Option<PatchEqMidQ>,
+    /// Patch EQ Low Mid Gain at `0x06:00:16`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_eq_low_mid_gain: Option<u8>,
+    /// Patch EQ Hi Mid Freq at `0x06:00:17`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_eq_hi_mid_freq: Option<PatchEqMidFreq>,
+    /// Patch EQ Hi Mid Q at `0x06:00:18`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_eq_hi_mid_q: Option<PatchEqMidQ>,
+    /// Patch EQ Hi Mid Gain at `0x06:00:19`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_eq_hi_mid_gain: Option<u8>,
+    /// Patch EQ High Cut at `0x06:00:1A`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_eq_high_cut: Option<PatchEqHighCut>,
+    /// Patch EQ High Gain at `0x06:00:1B`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_eq_high_gain: Option<u8>,
+    /// Patch EQ Level at `0x06:00:1C`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_eq_level: Option<u8>,
+    /// Patch EQ Character at `0x06:00:1D` (-3..=+3).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_eq_character: Option<PatchEqCharacter>,
+
     /// Everything inside the patch payload that the typed model doesn't yet
     /// cover. Keys are formatted `"PP:HH:LL"` — page byte, then the two
     /// in-page offset bytes.
@@ -2269,6 +2809,37 @@ impl PatchArea {
                     self.unknown_bytes.insert(format_key(page, hi, lo), b);
                 }
             }
+            // Page 0x06: Chorus / Delay / Reverb / EQ.
+            (0x06, 0x00, 0x00) => self.chorus_switch = OnOff::from_byte(b),
+            (0x06, 0x00, 0x01) => self.chorus_type = ChorusType::from_byte(b),
+            (0x06, 0x00, 0x02) if b <= 0x71 => self.chorus_rate = Some(b),
+            (0x06, 0x00, 0x03) if b <= 100 => self.chorus_depth = Some(b),
+            (0x06, 0x00, 0x04) if b <= 100 => self.chorus_level = Some(b),
+            (0x06, 0x00, 0x05) => self.delay_switch = OnOff::from_byte(b),
+            (0x06, 0x00, 0x06) => self.delay_type = DelayType::from_byte(b),
+            (0x06, 0x00, 0x07) if b <= 0x0F => self.delay_time = Some(b),
+            (0x06, 0x00, 0x08) if b <= 0x0F => self.delay_time_b = Some(b),
+            (0x06, 0x00, 0x09) if b <= 0x0F => self.delay_time_c = Some(b),
+            (0x06, 0x00, 0x0A) if b <= 100 => self.delay_feedback = Some(b),
+            (0x06, 0x00, 0x0B) if b <= 120 => self.delay_level = Some(b),
+            (0x06, 0x00, 0x0C) => self.reverb_switch = OnOff::from_byte(b),
+            (0x06, 0x00, 0x0D) => self.reverb_type = ReverbType::from_byte(b),
+            (0x06, 0x00, 0x0E) if b <= 99 => self.reverb_time = Some(b),
+            (0x06, 0x00, 0x0F) => self.reverb_high_cut = ReverbHighCut::from_byte(b),
+            (0x06, 0x00, 0x10) if b <= 100 => self.reverb_level = Some(b),
+            (0x06, 0x00, 0x11) => self.patch_eq_switch = OnOff::from_byte(b),
+            (0x06, 0x00, 0x12) => self.patch_eq_lo_cut = PatchEqLoCut::from_byte(b),
+            (0x06, 0x00, 0x13) if b <= 0x28 => self.patch_eq_low_gain = Some(b),
+            (0x06, 0x00, 0x14) => self.patch_eq_lo_mid_freq = PatchEqMidFreq::from_byte(b),
+            (0x06, 0x00, 0x15) => self.patch_eq_lo_mid_q = PatchEqMidQ::from_byte(b),
+            (0x06, 0x00, 0x16) if b <= 0x28 => self.patch_eq_low_mid_gain = Some(b),
+            (0x06, 0x00, 0x17) => self.patch_eq_hi_mid_freq = PatchEqMidFreq::from_byte(b),
+            (0x06, 0x00, 0x18) => self.patch_eq_hi_mid_q = PatchEqMidQ::from_byte(b),
+            (0x06, 0x00, 0x19) if b <= 0x28 => self.patch_eq_hi_mid_gain = Some(b),
+            (0x06, 0x00, 0x1A) => self.patch_eq_high_cut = PatchEqHighCut::from_byte(b),
+            (0x06, 0x00, 0x1B) if b <= 0x28 => self.patch_eq_high_gain = Some(b),
+            (0x06, 0x00, 0x1C) if b <= 0x28 => self.patch_eq_level = Some(b),
+            (0x06, 0x00, 0x1D) => self.patch_eq_character = PatchEqCharacter::from_byte(b),
             _ => {
                 self.unknown_bytes.insert(format_key(page, hi, lo), b);
             }
@@ -2724,6 +3295,97 @@ impl PatchArea {
             if let Some(mfx) = slot {
                 mfx.emit_bytes(&mut bytes, base_msb, 0x03 + idx as u8);
             }
+        }
+        // Page 0x06
+        if let Some(v) = self.chorus_switch {
+            bytes.insert([base_msb, 0x06, 0x00, 0x00], v.to_byte());
+        }
+        if let Some(v) = self.chorus_type {
+            bytes.insert([base_msb, 0x06, 0x00, 0x01], v.to_byte());
+        }
+        if let Some(v) = self.chorus_rate {
+            bytes.insert([base_msb, 0x06, 0x00, 0x02], v);
+        }
+        if let Some(v) = self.chorus_depth {
+            bytes.insert([base_msb, 0x06, 0x00, 0x03], v);
+        }
+        if let Some(v) = self.chorus_level {
+            bytes.insert([base_msb, 0x06, 0x00, 0x04], v);
+        }
+        if let Some(v) = self.delay_switch {
+            bytes.insert([base_msb, 0x06, 0x00, 0x05], v.to_byte());
+        }
+        if let Some(v) = self.delay_type {
+            bytes.insert([base_msb, 0x06, 0x00, 0x06], v.to_byte());
+        }
+        if let Some(v) = self.delay_time {
+            bytes.insert([base_msb, 0x06, 0x00, 0x07], v);
+        }
+        if let Some(v) = self.delay_time_b {
+            bytes.insert([base_msb, 0x06, 0x00, 0x08], v);
+        }
+        if let Some(v) = self.delay_time_c {
+            bytes.insert([base_msb, 0x06, 0x00, 0x09], v);
+        }
+        if let Some(v) = self.delay_feedback {
+            bytes.insert([base_msb, 0x06, 0x00, 0x0A], v);
+        }
+        if let Some(v) = self.delay_level {
+            bytes.insert([base_msb, 0x06, 0x00, 0x0B], v);
+        }
+        if let Some(v) = self.reverb_switch {
+            bytes.insert([base_msb, 0x06, 0x00, 0x0C], v.to_byte());
+        }
+        if let Some(v) = self.reverb_type {
+            bytes.insert([base_msb, 0x06, 0x00, 0x0D], v.to_byte());
+        }
+        if let Some(v) = self.reverb_time {
+            bytes.insert([base_msb, 0x06, 0x00, 0x0E], v);
+        }
+        if let Some(v) = self.reverb_high_cut {
+            bytes.insert([base_msb, 0x06, 0x00, 0x0F], v.to_byte());
+        }
+        if let Some(v) = self.reverb_level {
+            bytes.insert([base_msb, 0x06, 0x00, 0x10], v);
+        }
+        if let Some(v) = self.patch_eq_switch {
+            bytes.insert([base_msb, 0x06, 0x00, 0x11], v.to_byte());
+        }
+        if let Some(v) = self.patch_eq_lo_cut {
+            bytes.insert([base_msb, 0x06, 0x00, 0x12], v.to_byte());
+        }
+        if let Some(v) = self.patch_eq_low_gain {
+            bytes.insert([base_msb, 0x06, 0x00, 0x13], v);
+        }
+        if let Some(v) = self.patch_eq_lo_mid_freq {
+            bytes.insert([base_msb, 0x06, 0x00, 0x14], v.to_byte());
+        }
+        if let Some(v) = self.patch_eq_lo_mid_q {
+            bytes.insert([base_msb, 0x06, 0x00, 0x15], v.to_byte());
+        }
+        if let Some(v) = self.patch_eq_low_mid_gain {
+            bytes.insert([base_msb, 0x06, 0x00, 0x16], v);
+        }
+        if let Some(v) = self.patch_eq_hi_mid_freq {
+            bytes.insert([base_msb, 0x06, 0x00, 0x17], v.to_byte());
+        }
+        if let Some(v) = self.patch_eq_hi_mid_q {
+            bytes.insert([base_msb, 0x06, 0x00, 0x18], v.to_byte());
+        }
+        if let Some(v) = self.patch_eq_hi_mid_gain {
+            bytes.insert([base_msb, 0x06, 0x00, 0x19], v);
+        }
+        if let Some(v) = self.patch_eq_high_cut {
+            bytes.insert([base_msb, 0x06, 0x00, 0x1A], v.to_byte());
+        }
+        if let Some(v) = self.patch_eq_high_gain {
+            bytes.insert([base_msb, 0x06, 0x00, 0x1B], v);
+        }
+        if let Some(v) = self.patch_eq_level {
+            bytes.insert([base_msb, 0x06, 0x00, 0x1C], v);
+        }
+        if let Some(v) = self.patch_eq_character {
+            bytes.insert([base_msb, 0x06, 0x00, 0x1D], v.to_byte());
         }
         for (k, b) in &self.unknown_bytes {
             let (page, hi, lo) =
@@ -3436,6 +4098,83 @@ mod tests {
         assert!(area.mfx[1].is_none());
 
         // Round-trip
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
+    }
+
+    #[test]
+    fn page_06_effects_block_round_trips() {
+        let payload: Vec<u8> = vec![
+            OnOff::On.to_byte(),                  // 0x00 chorus_switch
+            ChorusType::Stereo.to_byte(),         // 0x01 chorus_type
+            0x40,                                 // 0x02 chorus_rate
+            60,                                   // 0x03 chorus_depth
+            70,                                   // 0x04 chorus_level
+            OnOff::On.to_byte(),                  // 0x05 delay_switch
+            DelayType::Tape.to_byte(),            // 0x06 delay_type
+            0x0A,                                 // 0x07 delay_time
+            0x05,                                 // 0x08 delay_time_b
+            0x02,                                 // 0x09 delay_time_c
+            55,                                   // 0x0A delay_feedback
+            80,                                   // 0x0B delay_level
+            OnOff::On.to_byte(),                  // 0x0C reverb_switch
+            ReverbType::Hall1.to_byte(),          // 0x0D reverb_type
+            50,                                   // 0x0E reverb_time (= 5.1s)
+            ReverbHighCut::Khz4_0.to_byte(),      // 0x0F reverb_high_cut
+            65,                                   // 0x10 reverb_level
+            OnOff::On.to_byte(),                  // 0x11 patch_eq_switch
+            PatchEqLoCut::Hz110.to_byte(),        // 0x12
+            0x20,                                 // 0x13 patch_eq_low_gain
+            PatchEqMidFreq::Hz400.to_byte(),      // 0x14
+            PatchEqMidQ::Q2.to_byte(),            // 0x15
+            0x10,                                 // 0x16 low_mid_gain
+            PatchEqMidFreq::Khz3_15.to_byte(),    // 0x17
+            PatchEqMidQ::Q4.to_byte(),            // 0x18
+            0x18,                                 // 0x19 hi_mid_gain
+            PatchEqHighCut::Khz4_00.to_byte(),    // 0x1A
+            0x22,                                 // 0x1B patch_eq_high_gain
+            0x20,                                 // 0x1C patch_eq_level
+            PatchEqCharacter::Plus2.to_byte(),    // 0x1D
+        ];
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x06, 0x00, 0x00],
+            data: Cow::Owned(payload),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+
+        assert_eq!(area.chorus_switch, Some(OnOff::On));
+        assert_eq!(area.chorus_type, Some(ChorusType::Stereo));
+        assert_eq!(area.chorus_rate, Some(0x40));
+        assert_eq!(area.chorus_depth, Some(60));
+        assert_eq!(area.chorus_level, Some(70));
+        assert_eq!(area.delay_switch, Some(OnOff::On));
+        assert_eq!(area.delay_type, Some(DelayType::Tape));
+        assert_eq!(area.delay_time, Some(0x0A));
+        assert_eq!(area.delay_time_b, Some(0x05));
+        assert_eq!(area.delay_time_c, Some(0x02));
+        assert_eq!(area.delay_feedback, Some(55));
+        assert_eq!(area.delay_level, Some(80));
+        assert_eq!(area.reverb_switch, Some(OnOff::On));
+        assert_eq!(area.reverb_type, Some(ReverbType::Hall1));
+        assert_eq!(area.reverb_time, Some(50));
+        assert_eq!(area.reverb_high_cut, Some(ReverbHighCut::Khz4_0));
+        assert_eq!(area.reverb_level, Some(65));
+        assert_eq!(area.patch_eq_switch, Some(OnOff::On));
+        assert_eq!(area.patch_eq_lo_cut, Some(PatchEqLoCut::Hz110));
+        assert_eq!(area.patch_eq_low_gain, Some(0x20));
+        assert_eq!(area.patch_eq_lo_mid_freq, Some(PatchEqMidFreq::Hz400));
+        assert_eq!(area.patch_eq_lo_mid_q, Some(PatchEqMidQ::Q2));
+        assert_eq!(area.patch_eq_low_mid_gain, Some(0x10));
+        assert_eq!(area.patch_eq_hi_mid_freq, Some(PatchEqMidFreq::Khz3_15));
+        assert_eq!(area.patch_eq_hi_mid_q, Some(PatchEqMidQ::Q4));
+        assert_eq!(area.patch_eq_hi_mid_gain, Some(0x18));
+        assert_eq!(area.patch_eq_high_cut, Some(PatchEqHighCut::Khz4_00));
+        assert_eq!(area.patch_eq_high_gain, Some(0x22));
+        assert_eq!(area.patch_eq_level, Some(0x20));
+        assert_eq!(area.patch_eq_character, Some(PatchEqCharacter::Plus2));
+        assert!(area.unknown_bytes.is_empty());
+
         let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
         assert_eq!(back, area);
     }
