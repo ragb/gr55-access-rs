@@ -4191,6 +4191,17 @@ pub struct PatchArea {
     /// a build-time-verified parameter label/owner lookup.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modulation: Option<Mod>,
+    /// Noise Suppressor switch at `0x07:00:5A`. NS lives on the same
+    /// page as PreAmp + MOD but is a separate sub-effect, so it's
+    /// modelled as flat fields here rather than nested inside `Mod`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ns_switch: Option<OnOff>,
+    /// NS Threshold at `0x07:00:5B` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ns_threshold: Option<u8>,
+    /// NS Release at `0x07:00:5C` (raw 0..=100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ns_release: Option<u8>,
 
     /// The single Modeling slot. Holds the 30 typed common-header bytes
     /// at page `0x10` offsets `0x00..=0x1D` plus a 226-byte type-specific
@@ -4546,6 +4557,9 @@ impl PatchArea {
                     self.unknown_bytes.insert(format_key(page, hi, lo), b);
                 }
             }
+            (0x07, 0x00, 0x5A) => self.ns_switch = OnOff::from_byte(b),
+            (0x07, 0x00, 0x5B) if b <= 100 => self.ns_threshold = Some(b),
+            (0x07, 0x00, 0x5C) if b <= 100 => self.ns_release = Some(b),
             // Page 0x10: Modeling common header.
             // Modeling slot — pages 0x10 (linear 0..=127) and 0x11
             // (linear 128..=255) feed into the same buffer.
@@ -5170,6 +5184,15 @@ impl PatchArea {
         }
         if let Some(modu) = &self.modulation {
             modu.emit_bytes(&mut bytes, base_msb);
+        }
+        if let Some(v) = self.ns_switch {
+            bytes.insert([base_msb, 0x07, 0x00, 0x5A], v.to_byte());
+        }
+        if let Some(v) = self.ns_threshold {
+            bytes.insert([base_msb, 0x07, 0x00, 0x5B], v);
+        }
+        if let Some(v) = self.ns_release {
+            bytes.insert([base_msb, 0x07, 0x00, 0x5C], v);
         }
         // Single Modeling slot — emits bytes to both page 0x10 and 0x11.
         if let Some(modeling) = &self.modeling {
@@ -6123,6 +6146,29 @@ mod tests {
         let pu_select = by_lin.get(&0x2F).expect("0x2F present");
         assert_eq!(pu_select.1, "E.GTR");
         assert_eq!(pu_select.2, "01-02");
+    }
+
+    #[test]
+    fn ns_block_round_trips() {
+        let frames = vec![Frame::Dt1 {
+            device_id: 0x10,
+            address: [TEMP_MSB, 0x07, 0x00, 0x5A],
+            data: Cow::Owned(vec![
+                OnOff::On.to_byte(), // 0x5A ns_switch
+                40,                  // 0x5B ns_threshold
+                60,                  // 0x5C ns_release
+            ]),
+        }];
+        let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
+        assert_eq!(area.ns_switch, Some(OnOff::On));
+        assert_eq!(area.ns_threshold, Some(40));
+        assert_eq!(area.ns_release, Some(60));
+        // NS bytes were previously falling through to unknown_bytes; with
+        // typing they shouldn't anymore.
+        assert!(area.unknown_bytes.is_empty());
+
+        let back = PatchArea::from_frames_at(&area.to_frames(0x10, TEMP_MSB).unwrap(), TEMP_MSB);
+        assert_eq!(back, area);
     }
 
     #[test]
