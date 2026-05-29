@@ -1025,7 +1025,7 @@ impl Mfx {
             ($linear:expr, $val:expr) => {
                 if let Some(v) = $val {
                     let (page, off) = mfx_address_split($linear);
-                    bytes.insert([base_msb, page, 0x00, off], v);
+                    bytes.insert([base_msb, 0x00, page, off], v);
                 }
             };
         }
@@ -1049,7 +1049,7 @@ impl Mfx {
         put!(0x11, self.eq_level);
         for (linear, b) in &self.raw_tail {
             let (page, off) = mfx_address_split(*linear);
-            bytes.insert([base_msb, page, 0x00, off], *b);
+            bytes.insert([base_msb, 0x00, page, off], *b);
         }
     }
 
@@ -1273,7 +1273,7 @@ impl Mod {
         macro_rules! put {
             ($off:expr, $val:expr) => {
                 if let Some(v) = $val {
-                    bytes.insert([base_msb, 0x07, 0x00, $off], v);
+                    bytes.insert([base_msb, 0x00, 0x07, $off], v);
                 }
             };
         }
@@ -1285,7 +1285,7 @@ impl Mod {
         put!(0x16, self.mod_type.map(ModType::to_byte));
         put!(0x17, self.pan);
         for (off, b) in &self.raw_tail {
-            bytes.insert([base_msb, 0x07, 0x00, *off], *b);
+            bytes.insert([base_msb, 0x00, 0x07, *off], *b);
         }
     }
 
@@ -1546,7 +1546,7 @@ impl Modeling {
             ($linear:expr, $val:expr) => {
                 if let Some(v) = $val {
                     let (page, off) = modeling_address_split($linear);
-                    bytes.insert([base_msb, page, 0x00, off], v);
+                    bytes.insert([base_msb, 0x00, page, off], v);
                 }
             };
         }
@@ -1573,7 +1573,7 @@ impl Modeling {
         put!(0x1D, self.twelve_string.map(OnOff::to_byte));
         for (linear, b) in &self.raw_tail {
             let (page, off) = modeling_address_split(*linear);
-            bytes.insert([base_msb, page, 0x00, off], *b);
+            bytes.insert([base_msb, 0x00, page, off], *b);
         }
     }
 
@@ -2029,7 +2029,7 @@ impl Pcm {
         macro_rules! put_h {
             ($off:expr, $val:expr) => {
                 if let Some(v) = $val {
-                    bytes.insert([base_msb, header_page, 0x00, $off], v);
+                    bytes.insert([base_msb, 0x00, header_page, $off], v);
                 }
             };
         }
@@ -2039,14 +2039,14 @@ impl Pcm {
         // partial decode, emit those instead.
         if let Some(idx) = self.synth_tone {
             let [bank, pos] = idx.to_two_bytes();
-            bytes.insert([base_msb, header_page, 0x00, 0x01], bank);
-            bytes.insert([base_msb, header_page, 0x00, 0x02], pos);
+            bytes.insert([base_msb, 0x00, header_page, 0x01], bank);
+            bytes.insert([base_msb, 0x00, header_page, 0x02], pos);
         } else {
             if let Some(b) = self.pending_bank {
-                bytes.insert([base_msb, header_page, 0x00, 0x01], b);
+                bytes.insert([base_msb, 0x00, header_page, 0x01], b);
             }
             if let Some(p) = self.pending_pos {
-                bytes.insert([base_msb, header_page, 0x00, 0x02], p);
+                bytes.insert([base_msb, 0x00, header_page, 0x02], p);
             }
         }
         put_h!(0x03, self.tone_sw.map(AnalogPuToneSw::to_byte));
@@ -2067,7 +2067,7 @@ impl Pcm {
         }
         put_h!(0x16, self.line_route.map(LineRoute::to_byte));
         for (off, b) in &self.raw_tail {
-            bytes.insert([base_msb, tail_page, 0x00, *off], *b);
+            bytes.insert([base_msb, 0x00, tail_page, *off], *b);
         }
     }
 
@@ -3729,9 +3729,9 @@ fn string_shift_all_none(arr: &[Option<u8>; 6]) -> bool {
 fn assign_address(base_msb: u8, idx: usize, byte_in_assign: u8) -> [u8; 4] {
     let flat = 0x0C_u16 + (idx as u16) * 19 + byte_in_assign as u16;
     if flat < 0x80 {
-        [base_msb, 0x01, 0x00, flat as u8]
+        [base_msb, 0x00, 0x01, flat as u8]
     } else {
-        [base_msb, 0x02, 0x00, (flat - 0x80) as u8]
+        [base_msb, 0x00, 0x02, (flat - 0x80) as u8]
     }
 }
 
@@ -4392,21 +4392,27 @@ impl PatchArea {
             if address[0] != base_msb {
                 continue;
             }
-            let mut page = address[1];
-            let mut hi = address[2];
+            // GR-55 patch addresses are `[MSB, 0x00, block, offset]` on the
+            // wire (confirmed against VController + FloorBoard fixtures).
+            // Internally we keep the historical (page, hi, lo) triple where
+            // `page` carries the block byte (= wire `address[2]`) and `hi`
+            // carries the spare byte (= wire `address[1]`, always `0x00`
+            // for patch data).
+            let mut page = address[2];
+            let mut hi = address[1];
             let mut lo = address[3];
             for &b in data.iter() {
                 area.store(page, hi, lo, b);
                 // Roland addresses are 7-bit per byte (0x00..=0x7F).
                 // Advance lo; on overflow past 0x7F, reset to 0 and carry
-                // into hi; on overflow there, into page.
+                // into page (the block byte); on overflow there, into hi.
                 lo += 1;
                 if lo > 0x7F {
                     lo = 0;
-                    hi += 1;
-                    if hi > 0x7F {
-                        hi = 0;
-                        page += 1;
+                    page += 1;
+                    if page > 0x7F {
+                        page = 0;
+                        hi += 1;
                     }
                 }
             }
@@ -5082,28 +5088,28 @@ impl PatchArea {
             bytes.insert([base_msb, 0x00, 0x00, 0x7F], v.to_byte());
         }
         if let Some(v) = self.gk_s2_tone_sw_off_pcm_1 {
-            bytes.insert([base_msb, 0x01, 0x00, 0x04], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x01, 0x04], v.to_byte());
         }
         if let Some(v) = self.gk_s2_tone_sw_off_pcm_2 {
-            bytes.insert([base_msb, 0x01, 0x00, 0x05], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x01, 0x05], v.to_byte());
         }
         if let Some(v) = self.gk_s2_tone_sw_off_modeling {
-            bytes.insert([base_msb, 0x01, 0x00, 0x06], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x01, 0x06], v.to_byte());
         }
         if let Some(v) = self.gk_s2_tone_sw_off_normal_pu {
-            bytes.insert([base_msb, 0x01, 0x00, 0x07], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x01, 0x07], v.to_byte());
         }
         if let Some(v) = self.gk_s2_tone_sw_on_pcm_1 {
-            bytes.insert([base_msb, 0x01, 0x00, 0x08], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x01, 0x08], v.to_byte());
         }
         if let Some(v) = self.gk_s2_tone_sw_on_pcm_2 {
-            bytes.insert([base_msb, 0x01, 0x00, 0x09], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x01, 0x09], v.to_byte());
         }
         if let Some(v) = self.gk_s2_tone_sw_on_modeling {
-            bytes.insert([base_msb, 0x01, 0x00, 0x0A], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x01, 0x0A], v.to_byte());
         }
         if let Some(v) = self.gk_s2_tone_sw_on_normal_pu {
-            bytes.insert([base_msb, 0x01, 0x00, 0x0B], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x01, 0x0B], v.to_byte());
         }
         // Master Assigns 1-8
         for (idx, slot) in self.master_assigns.iter().enumerate() {
@@ -5113,91 +5119,91 @@ impl PatchArea {
         }
         // Page 0x02 tail
         if let Some(v) = self.gk_set {
-            bytes.insert([base_msb, 0x02, 0x00, 0x24], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x02, 0x24], v.to_byte());
         }
         if let Some(v) = self.guitar_out {
-            bytes.insert([base_msb, 0x02, 0x00, 0x25], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x02, 0x25], v.to_byte());
         }
         if let Some(v) = self.v_link_pallet {
-            bytes.insert([base_msb, 0x02, 0x00, 0x26], v);
+            bytes.insert([base_msb, 0x00, 0x02, 0x26], v);
         }
         if let Some(v) = self.v_link_clip {
-            bytes.insert([base_msb, 0x02, 0x00, 0x27], v);
+            bytes.insert([base_msb, 0x00, 0x02, 0x27], v);
         }
         if let Some(v) = self.v_link_note_clip_change {
-            bytes.insert([base_msb, 0x02, 0x00, 0x28], v);
+            bytes.insert([base_msb, 0x00, 0x02, 0x28], v);
         }
         if let Some(v) = self.v_link_exp {
-            bytes.insert([base_msb, 0x02, 0x00, 0x29], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x02, 0x29], v.to_byte());
         }
         if let Some(v) = self.v_link_exp_on {
-            bytes.insert([base_msb, 0x02, 0x00, 0x2A], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x02, 0x2A], v.to_byte());
         }
         if let Some(v) = self.v_link_gk_vol {
-            bytes.insert([base_msb, 0x02, 0x00, 0x2B], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x02, 0x2B], v.to_byte());
         }
         if let Some(v) = self.structure {
-            bytes.insert([base_msb, 0x02, 0x00, 0x2C], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x02, 0x2C], v.to_byte());
         }
         if let Some(v) = self.modeling_line_route {
-            bytes.insert([base_msb, 0x02, 0x00, 0x2D], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x02, 0x2D], v.to_byte());
         }
         if let Some(v) = self.analog_pu_line_route {
-            bytes.insert([base_msb, 0x02, 0x00, 0x2E], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x02, 0x2E], v.to_byte());
         }
         if let Some(v) = self.patch_level {
             let [hi, lo] = v.to_two_bytes();
-            bytes.insert([base_msb, 0x02, 0x00, 0x30], hi);
-            bytes.insert([base_msb, 0x02, 0x00, 0x31], lo);
+            bytes.insert([base_msb, 0x00, 0x02, 0x30], hi);
+            bytes.insert([base_msb, 0x00, 0x02, 0x31], lo);
         }
         if let Some(v) = self.analog_pu_tone_sw {
-            bytes.insert([base_msb, 0x02, 0x00, 0x32], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x02, 0x32], v.to_byte());
         }
         if let Some(v) = self.analog_pu_tone_level {
-            bytes.insert([base_msb, 0x02, 0x00, 0x33], v);
+            bytes.insert([base_msb, 0x00, 0x02, 0x33], v);
         }
         if let Some(v) = self.alt_tuning_sw {
-            bytes.insert([base_msb, 0x02, 0x00, 0x34], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x02, 0x34], v.to_byte());
         }
         if let Some(v) = self.alt_tuning_type {
-            bytes.insert([base_msb, 0x02, 0x00, 0x35], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x02, 0x35], v.to_byte());
         }
         for (i, v) in self.alt_tuning_user_shift.iter().enumerate() {
             if let Some(b) = v {
-                bytes.insert([base_msb, 0x02, 0x00, 0x36 + i as u8], *b);
+                bytes.insert([base_msb, 0x00, 0x02, 0x36 + i as u8], *b);
             }
         }
         if let Some(v) = self.patch_tempo {
             let [hi, lo] = v.to_two_bytes();
-            bytes.insert([base_msb, 0x02, 0x00, 0x3C], hi);
-            bytes.insert([base_msb, 0x02, 0x00, 0x3D], lo);
+            bytes.insert([base_msb, 0x00, 0x02, 0x3C], hi);
+            bytes.insert([base_msb, 0x00, 0x02, 0x3D], lo);
         }
         if let Some(v) = self.bypass_chorus {
-            bytes.insert([base_msb, 0x02, 0x00, 0x3E], v);
+            bytes.insert([base_msb, 0x00, 0x02, 0x3E], v);
         }
         if let Some(v) = self.bypass_delay {
-            bytes.insert([base_msb, 0x02, 0x00, 0x3F], v);
+            bytes.insert([base_msb, 0x00, 0x02, 0x3F], v);
         }
         if let Some(v) = self.bypass_reverb {
-            bytes.insert([base_msb, 0x02, 0x00, 0x40], v);
+            bytes.insert([base_msb, 0x00, 0x02, 0x40], v);
         }
         if let Some(v) = self.exp_mod_min_envelope {
-            bytes.insert([base_msb, 0x02, 0x00, 0x42], v);
+            bytes.insert([base_msb, 0x00, 0x02, 0x42], v);
         }
         if let Some(v) = self.exp_mod_max_envelope {
-            bytes.insert([base_msb, 0x02, 0x00, 0x43], v);
+            bytes.insert([base_msb, 0x00, 0x02, 0x43], v);
         }
         if let Some(v) = self.exp_on_mod_min_envelope {
-            bytes.insert([base_msb, 0x02, 0x00, 0x44], v);
+            bytes.insert([base_msb, 0x00, 0x02, 0x44], v);
         }
         if let Some(v) = self.exp_on_mod_max_envelope {
-            bytes.insert([base_msb, 0x02, 0x00, 0x45], v);
+            bytes.insert([base_msb, 0x00, 0x02, 0x45], v);
         }
         if let Some(v) = self.gk_vol_mod_min_envelope {
-            bytes.insert([base_msb, 0x02, 0x00, 0x46], v);
+            bytes.insert([base_msb, 0x00, 0x02, 0x46], v);
         }
         if let Some(v) = self.gk_vol_mod_max_envelope {
-            bytes.insert([base_msb, 0x02, 0x00, 0x47], v);
+            bytes.insert([base_msb, 0x00, 0x02, 0x47], v);
         }
         // Single MFX slot — emits bytes to both page 0x03 and 0x04.
         if let Some(mfx) = &self.mfx {
@@ -5205,158 +5211,158 @@ impl PatchArea {
         }
         // Page 0x06
         if let Some(v) = self.chorus_switch {
-            bytes.insert([base_msb, 0x06, 0x00, 0x00], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x00], v.to_byte());
         }
         if let Some(v) = self.chorus_type {
-            bytes.insert([base_msb, 0x06, 0x00, 0x01], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x01], v.to_byte());
         }
         if let Some(v) = self.chorus_rate {
-            bytes.insert([base_msb, 0x06, 0x00, 0x02], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x02], v);
         }
         if let Some(v) = self.chorus_depth {
-            bytes.insert([base_msb, 0x06, 0x00, 0x03], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x03], v);
         }
         if let Some(v) = self.chorus_level {
-            bytes.insert([base_msb, 0x06, 0x00, 0x04], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x04], v);
         }
         if let Some(v) = self.delay_switch {
-            bytes.insert([base_msb, 0x06, 0x00, 0x05], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x05], v.to_byte());
         }
         if let Some(v) = self.delay_type {
-            bytes.insert([base_msb, 0x06, 0x00, 0x06], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x06], v.to_byte());
         }
         if let Some(v) = self.delay_time {
-            bytes.insert([base_msb, 0x06, 0x00, 0x07], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x07], v);
         }
         if let Some(v) = self.delay_time_b {
-            bytes.insert([base_msb, 0x06, 0x00, 0x08], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x08], v);
         }
         if let Some(v) = self.delay_time_c {
-            bytes.insert([base_msb, 0x06, 0x00, 0x09], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x09], v);
         }
         if let Some(v) = self.delay_feedback {
-            bytes.insert([base_msb, 0x06, 0x00, 0x0A], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x0A], v);
         }
         if let Some(v) = self.delay_level {
-            bytes.insert([base_msb, 0x06, 0x00, 0x0B], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x0B], v);
         }
         if let Some(v) = self.reverb_switch {
-            bytes.insert([base_msb, 0x06, 0x00, 0x0C], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x0C], v.to_byte());
         }
         if let Some(v) = self.reverb_type {
-            bytes.insert([base_msb, 0x06, 0x00, 0x0D], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x0D], v.to_byte());
         }
         if let Some(v) = self.reverb_time {
-            bytes.insert([base_msb, 0x06, 0x00, 0x0E], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x0E], v);
         }
         if let Some(v) = self.reverb_high_cut {
-            bytes.insert([base_msb, 0x06, 0x00, 0x0F], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x0F], v.to_byte());
         }
         if let Some(v) = self.reverb_level {
-            bytes.insert([base_msb, 0x06, 0x00, 0x10], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x10], v);
         }
         if let Some(v) = self.patch_eq_switch {
-            bytes.insert([base_msb, 0x06, 0x00, 0x11], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x11], v.to_byte());
         }
         if let Some(v) = self.patch_eq_lo_cut {
-            bytes.insert([base_msb, 0x06, 0x00, 0x12], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x12], v.to_byte());
         }
         if let Some(v) = self.patch_eq_low_gain {
-            bytes.insert([base_msb, 0x06, 0x00, 0x13], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x13], v);
         }
         if let Some(v) = self.patch_eq_lo_mid_freq {
-            bytes.insert([base_msb, 0x06, 0x00, 0x14], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x14], v.to_byte());
         }
         if let Some(v) = self.patch_eq_lo_mid_q {
-            bytes.insert([base_msb, 0x06, 0x00, 0x15], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x15], v.to_byte());
         }
         if let Some(v) = self.patch_eq_low_mid_gain {
-            bytes.insert([base_msb, 0x06, 0x00, 0x16], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x16], v);
         }
         if let Some(v) = self.patch_eq_hi_mid_freq {
-            bytes.insert([base_msb, 0x06, 0x00, 0x17], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x17], v.to_byte());
         }
         if let Some(v) = self.patch_eq_hi_mid_q {
-            bytes.insert([base_msb, 0x06, 0x00, 0x18], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x18], v.to_byte());
         }
         if let Some(v) = self.patch_eq_hi_mid_gain {
-            bytes.insert([base_msb, 0x06, 0x00, 0x19], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x19], v);
         }
         if let Some(v) = self.patch_eq_high_cut {
-            bytes.insert([base_msb, 0x06, 0x00, 0x1A], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x1A], v.to_byte());
         }
         if let Some(v) = self.patch_eq_high_gain {
-            bytes.insert([base_msb, 0x06, 0x00, 0x1B], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x1B], v);
         }
         if let Some(v) = self.patch_eq_level {
-            bytes.insert([base_msb, 0x06, 0x00, 0x1C], v);
+            bytes.insert([base_msb, 0x00, 0x06, 0x1C], v);
         }
         if let Some(v) = self.patch_eq_character {
-            bytes.insert([base_msb, 0x06, 0x00, 0x1D], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x06, 0x1D], v.to_byte());
         }
         // Page 0x07
         if let Some(v) = self.preamp_switch {
-            bytes.insert([base_msb, 0x07, 0x00, 0x00], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x07, 0x00], v.to_byte());
         }
         if let Some(v) = self.preamp_type {
-            bytes.insert([base_msb, 0x07, 0x00, 0x01], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x07, 0x01], v.to_byte());
         }
         if let Some(v) = self.preamp_gain {
-            bytes.insert([base_msb, 0x07, 0x00, 0x02], v);
+            bytes.insert([base_msb, 0x00, 0x07, 0x02], v);
         }
         if let Some(v) = self.preamp_level {
-            bytes.insert([base_msb, 0x07, 0x00, 0x03], v);
+            bytes.insert([base_msb, 0x00, 0x07, 0x03], v);
         }
         if let Some(v) = self.preamp_gain_sw {
-            bytes.insert([base_msb, 0x07, 0x00, 0x04], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x07, 0x04], v.to_byte());
         }
         if let Some(v) = self.preamp_solo_sw {
-            bytes.insert([base_msb, 0x07, 0x00, 0x05], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x07, 0x05], v.to_byte());
         }
         if let Some(v) = self.preamp_solo_level {
-            bytes.insert([base_msb, 0x07, 0x00, 0x06], v);
+            bytes.insert([base_msb, 0x00, 0x07, 0x06], v);
         }
         if let Some(v) = self.preamp_bass {
-            bytes.insert([base_msb, 0x07, 0x00, 0x07], v);
+            bytes.insert([base_msb, 0x00, 0x07, 0x07], v);
         }
         if let Some(v) = self.preamp_middle {
-            bytes.insert([base_msb, 0x07, 0x00, 0x08], v);
+            bytes.insert([base_msb, 0x00, 0x07, 0x08], v);
         }
         if let Some(v) = self.preamp_treble {
-            bytes.insert([base_msb, 0x07, 0x00, 0x09], v);
+            bytes.insert([base_msb, 0x00, 0x07, 0x09], v);
         }
         if let Some(v) = self.preamp_presence {
-            bytes.insert([base_msb, 0x07, 0x00, 0x0A], v);
+            bytes.insert([base_msb, 0x00, 0x07, 0x0A], v);
         }
         if let Some(v) = self.preamp_bright_sw {
-            bytes.insert([base_msb, 0x07, 0x00, 0x0B], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x07, 0x0B], v.to_byte());
         }
         if let Some(v) = self.speaker_type {
-            bytes.insert([base_msb, 0x07, 0x00, 0x0C], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x07, 0x0C], v.to_byte());
         }
         if let Some(v) = self.mic_type {
-            bytes.insert([base_msb, 0x07, 0x00, 0x0D], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x07, 0x0D], v.to_byte());
         }
         if let Some(v) = self.mic_distance {
-            bytes.insert([base_msb, 0x07, 0x00, 0x0E], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x07, 0x0E], v.to_byte());
         }
         if let Some(v) = self.mic_position {
-            bytes.insert([base_msb, 0x07, 0x00, 0x0F], v);
+            bytes.insert([base_msb, 0x00, 0x07, 0x0F], v);
         }
         if let Some(v) = self.mic_level {
-            bytes.insert([base_msb, 0x07, 0x00, 0x10], v);
+            bytes.insert([base_msb, 0x00, 0x07, 0x10], v);
         }
         if let Some(modu) = &self.modulation {
             modu.emit_bytes(&mut bytes, base_msb);
         }
         if let Some(v) = self.ns_switch {
-            bytes.insert([base_msb, 0x07, 0x00, 0x5A], v.to_byte());
+            bytes.insert([base_msb, 0x00, 0x07, 0x5A], v.to_byte());
         }
         if let Some(v) = self.ns_threshold {
-            bytes.insert([base_msb, 0x07, 0x00, 0x5B], v);
+            bytes.insert([base_msb, 0x00, 0x07, 0x5B], v);
         }
         if let Some(v) = self.ns_release {
-            bytes.insert([base_msb, 0x07, 0x00, 0x5C], v);
+            bytes.insert([base_msb, 0x00, 0x07, 0x5C], v);
         }
         // Single Modeling slot — emits bytes to both page 0x10 and 0x11.
         if let Some(modeling) = &self.modeling {
@@ -5371,7 +5377,7 @@ impl PatchArea {
         for (k, b) in &self.unknown_bytes {
             let (page, hi, lo) =
                 parse_key(k).ok_or_else(|| CodecError::BadStoredAddress(k.clone()))?;
-            bytes.insert([base_msb, page, hi, lo], *b);
+            bytes.insert([base_msb, hi, page, lo], *b);
         }
         Ok(bytes)
     }
@@ -5419,7 +5425,7 @@ mod tests {
     fn unrecognised_offsets_round_trip_via_unknown_bytes() {
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x03, 0x00, 0x05], // MFX page, some offset
+            address: [TEMP_MSB, 0x00, 0x03, 0x05], // MFX page, some offset
             data: Cow::Owned(vec![0xAB, 0xCD]),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
@@ -5757,7 +5763,7 @@ mod tests {
             // 4 placeholder bytes + 8 tone-sw bytes at page 0x01.
             Frame::Dt1 {
                 device_id: 0x10,
-                address: [TEMP_MSB, 0x01, 0x00, 0x00],
+                address: [TEMP_MSB, 0x00, 0x01, 0x00],
                 data: Cow::Owned(vec![
                     0xAA,
                     0xBB,
@@ -5791,18 +5797,21 @@ mod tests {
     #[test]
     fn payload_carries_lo_at_7f_to_next_hi() {
         // A 3-byte payload starting at lo=0x7E should land at lo=0x7E,
-        // lo=0x7F, then (hi=0x01, lo=0x00) — NOT (hi=0x00, lo=0x80).
-        // Use page 0x40 — well above any typed page — so the bytes fall
-        // through to unknown_bytes where we can inspect them.
+        // lo=0x7F, then carry into the block byte: (page=0x41, lo=0x00) —
+        // NOT (page=0x40, lo=0x80). Wire-byte rollover is
+        // `address[3] → address[2]`, which in our internal naming is
+        // `lo → page` (page = address[2] = block id on the wire).
+        // Use block 0x40 — well above any typed block — so the bytes
+        // fall through to unknown_bytes where we can inspect them.
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x40, 0x00, 0x7E],
+            address: [TEMP_MSB, 0x00, 0x40, 0x7E],
             data: Cow::Owned(vec![0xA1, 0xA2, 0xA3]),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
         assert_eq!(area.unknown_bytes.get("40:00:7E"), Some(&0xA1));
         assert_eq!(area.unknown_bytes.get("40:00:7F"), Some(&0xA2));
-        assert_eq!(area.unknown_bytes.get("40:01:00"), Some(&0xA3));
+        assert_eq!(area.unknown_bytes.get("41:00:00"), Some(&0xA3));
         // The wrong (overflow-to-0x80) behaviour would surface here:
         assert!(!area.unknown_bytes.contains_key("40:00:80"));
     }
@@ -5832,7 +5841,7 @@ mod tests {
         ];
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x01, 0x00, 0x0C], // Assign1 base
+            address: [TEMP_MSB, 0x00, 0x01, 0x0C], // Assign1 base
             data: Cow::Owned(payload),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
@@ -5869,12 +5878,12 @@ mod tests {
         let frames = vec![
             Frame::Dt1 {
                 device_id: 0x10,
-                address: [TEMP_MSB, 0x01, 0x00, 0x7E],
+                address: [TEMP_MSB, 0x00, 0x01, 0x7E],
                 data: Cow::Owned(vec![OnOff::On.to_byte(), 0x07]), // on_off, target
             },
             Frame::Dt1 {
                 device_id: 0x10,
-                address: [TEMP_MSB, 0x02, 0x00, 0x00],
+                address: [TEMP_MSB, 0x00, 0x02, 0x00],
                 data: Cow::Owned(vec![
                     0x00, 0x00, // target_b, target_c
                     0x02, 0x00, 0x00, // min, min_b, min_c
@@ -5921,10 +5930,12 @@ mod tests {
         let mut saw_page2 = false;
         for f in &back_frames {
             if let Frame::Dt1 { address, .. } = f {
-                if address[1] == 0x01 && address[3] >= 0x7E {
+                // Block byte lives in address[2] on the wire (address[1] is
+                // the always-zero spare for patch data).
+                if address[2] == 0x01 && address[3] >= 0x7E {
                     saw_page1 = true;
                 }
-                if address[1] == 0x02 && address[3] <= 0x10 {
+                if address[2] == 0x02 && address[3] <= 0x10 {
                     saw_page2 = true;
                 }
             }
@@ -5983,7 +5994,7 @@ mod tests {
 
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x02, 0x00, 0x24],
+            address: [TEMP_MSB, 0x00, 0x02, 0x24],
             data: Cow::Owned(payload),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
@@ -6052,7 +6063,7 @@ mod tests {
         payload.extend([0xC1, 0xC2, 0xC3, 0xC4, 0xC5]); // 0x12..=0x16
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x03, 0x00, 0x00], // MFX slot 0
+            address: [TEMP_MSB, 0x00, 0x03, 0x00], // MFX slot 0
             data: Cow::Owned(payload),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
@@ -6118,7 +6129,7 @@ mod tests {
         ];
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x06, 0x00, 0x00],
+            address: [TEMP_MSB, 0x00, 0x06, 0x00],
             data: Cow::Owned(payload),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
@@ -6192,7 +6203,7 @@ mod tests {
         payload.extend([0xE1, 0xE2, 0xE3, 0xE4]); // 0x18..=0x1B
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x07, 0x00, 0x00],
+            address: [TEMP_MSB, 0x00, 0x07, 0x00],
             data: Cow::Owned(payload),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
@@ -6316,7 +6327,7 @@ mod tests {
     fn ns_block_round_trips() {
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x07, 0x00, 0x5A],
+            address: [TEMP_MSB, 0x00, 0x07, 0x5A],
             data: Cow::Owned(vec![
                 OnOff::On.to_byte(), // 0x5A ns_switch
                 40,                  // 0x5B ns_threshold
@@ -6397,7 +6408,7 @@ mod tests {
 
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x10, 0x00, 0x00],
+            address: [TEMP_MSB, 0x00, 0x10, 0x00],
             data: Cow::Owned(payload),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
@@ -6474,13 +6485,13 @@ mod tests {
             ];
             frames.push(Frame::Dt1 {
                 device_id: 0x10,
-                address: [TEMP_MSB, header_page, 0x00, 0x00],
+                address: [TEMP_MSB, 0x00, header_page, 0x00],
                 data: Cow::Owned(header_payload),
             });
             // A few tail bytes on tail_page to verify routing.
             frames.push(Frame::Dt1 {
                 device_id: 0x10,
-                address: [TEMP_MSB, tail_page, 0x00, 0x00],
+                address: [TEMP_MSB, 0x00, tail_page, 0x00],
                 data: Cow::Owned(vec![
                     0xA0 + slot_idx as u8, // 0x00 Filter Type (raw)
                     0xB0 + slot_idx as u8, // 0x01 Cutoff (raw)
@@ -6580,7 +6591,7 @@ mod tests {
         ];
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x20, 0x00, 0x10], // PCM Tone 1 header page
+            address: [TEMP_MSB, 0x00, 0x20, 0x10], // PCM Tone 1 header page
             data: Cow::Owned(payload),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
@@ -6605,7 +6616,7 @@ mod tests {
         // `pending_bank` and NOT promote to a typed synth_tone.
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x20, 0x00, 0x01],
+            address: [TEMP_MSB, 0x00, 0x20, 0x01],
             data: Cow::Owned(vec![3]),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
@@ -6691,7 +6702,7 @@ mod tests {
         // mfx_params table.
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x04, 0x00, 0x05],
+            address: [TEMP_MSB, 0x00, 0x04, 0x05],
             data: Cow::Owned(vec![0x42]),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
@@ -6732,7 +6743,7 @@ mod tests {
         // Assign8 starts at flat offset 0x0C + 7*19 = 0x91 = page 0x02 0x11.
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x02, 0x00, 0x11],
+            address: [TEMP_MSB, 0x00, 0x02, 0x11],
             data: Cow::Owned(vec![OnOff::On.to_byte()]),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
@@ -6751,7 +6762,7 @@ mod tests {
         // Assign6 starts at lo = 0x0C + 5*19 = 0x6B.
         let frames = vec![Frame::Dt1 {
             device_id: 0x10,
-            address: [TEMP_MSB, 0x01, 0x00, 0x6B],
+            address: [TEMP_MSB, 0x00, 0x01, 0x6B],
             data: Cow::Owned(vec![OnOff::On.to_byte()]),
         }];
         let area = PatchArea::from_frames_at(&frames, TEMP_MSB);
