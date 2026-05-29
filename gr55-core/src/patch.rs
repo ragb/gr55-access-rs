@@ -6832,6 +6832,77 @@ mod tests {
         assert!(matches!(err, PatchNameError::TooLong(17)));
     }
 
+    /// Verify the EZ-Tone library — ~200 KB of GR-55 USER-area patches —
+    /// round-trips losslessly **per slot**. Each USER patch slot has its
+    /// own 4-byte base address; we group frames by their slot key
+    /// `(address[1], address[2])` (high + low 7 bits of slot index per
+    /// VController's encoding `0x20000001 + ((N/0x80) * 0x01000000) +
+    /// ((N%0x80) * 0x00010000)`) and treat each group as one patch. Then
+    /// every patch must satisfy `decode → emit → decode == decode`.
+    ///
+    /// Without this per-slot grouping the entire library would collapse
+    /// onto a single PatchArea (whichever byte arrives last at each
+    /// address wins) and the test would degrade to "the codec is
+    /// internally consistent" — much weaker than "every shipped EZ-Tone
+    /// patch survives a round-trip".
+    #[test]
+    fn floorboard_ez_tone_library_round_trips_per_slot() {
+        let bytes: &[u8] = include_bytes!("../tests/fixtures/floorboard_ez_tone_library.syx");
+        let mut by_slot: std::collections::BTreeMap<(u8, u8, u8), Vec<Frame<'static>>> =
+            std::collections::BTreeMap::new();
+        for frame in crate::sysex::parse_frames(bytes).filter_map(|r| r.ok()) {
+            if let Frame::Dt1 { address, .. } = &frame {
+                // Key on (MSB, slot_hi, slot_lo) where MSB selects
+                // TEMP/USER area and the next two bytes select the patch
+                // slot within that area.
+                let key = (address[0], address[1], address[2]);
+                by_slot.entry(key).or_default().push(frame.into_owned());
+            }
+        }
+        assert!(
+            by_slot.len() >= 2,
+            "expected the EZ-Tone library to contain multiple distinct \
+             USER patch slots (got {})",
+            by_slot.len()
+        );
+
+        for ((msb, hi, lo), frames) in &by_slot {
+            // Rewrite frames so each slot's bytes look like they live at
+            // the canonical patch base for that MSB (slot-hi/lo zeroed
+            // out). This lets `PatchArea::from_frames_at` decode each
+            // slot independently using its standard block-byte
+            // dispatcher (block = address[2]).
+            let normalized: Vec<Frame<'static>> = frames
+                .iter()
+                .map(|f| match f {
+                    Frame::Dt1 {
+                        device_id,
+                        address,
+                        data,
+                    } => Frame::Dt1 {
+                        device_id: *device_id,
+                        address: [address[0], 0x00, address[2], address[3]],
+                        data: data.clone(),
+                    },
+                    other => other.clone(),
+                })
+                .collect();
+            // Decoding requires the slot's `address[1]` to equal the
+            // base MSB's spare byte (0x00 for patch data) — the rewrite
+            // above guarantees that. We keep MSB as-is.
+            let _ = (hi, lo); // tuple keys retained for grouping only.
+            let area = PatchArea::from_frames_at(&normalized, *msb);
+            let re_emitted = area
+                .to_frames(0x10, *msb)
+                .unwrap_or_else(|e| panic!("re-emit slot ({msb:02X},{hi:02X},{lo:02X}): {e:?}"));
+            let area2 = PatchArea::from_frames_at(&re_emitted, *msb);
+            assert_eq!(
+                area, area2,
+                "EZ-Tone slot ({msb:02X},{hi:02X},{lo:02X}) should round-trip"
+            );
+        }
+    }
+
     /// FloorBoard `default.syx` round-trips losslessly: decode →
     /// re-encode → re-decode produces an identical PatchArea. This is the
     /// end-to-end import-and-write guarantee — every byte the fixture
