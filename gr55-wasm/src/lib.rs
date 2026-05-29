@@ -51,6 +51,7 @@ use gr55_core::patch::PatchArea;
 use gr55_core::pcm_tail_params::{PcmTailParamEntry, PCM_TAIL_PARAMS};
 use gr55_core::pcm_tones::{PCM_TONE_CATEGORIES, PCM_TONE_COUNT, PCM_TONE_NAMES};
 use gr55_core::sysex::{parse_frames_unchecked, Frame};
+use gr55_core::system::SystemArea;
 
 #[wasm_bindgen]
 pub fn version() -> String {
@@ -348,6 +349,43 @@ pub fn classify_inbound(bytes: &[u8]) -> InboundMessage {
 #[wasm_bindgen(js_name = newInitPatch)]
 pub fn new_init_patch() -> PatchArea {
     gr55_core::default_patch::new_init_patch()
+}
+
+// ---------------------------------------------------------------------------
+// Typed System area I/O
+// ---------------------------------------------------------------------------
+
+/// Decode raw SysEx bytes into a typed [`SystemArea`]. Frames addressed
+/// to MSBs outside the System range (`0x01` / `0x02`) are silently
+/// ignored.
+#[wasm_bindgen(js_name = decodeSystemSysex)]
+pub fn decode_system_sysex(bytes: &[u8]) -> SystemArea {
+    let frames: Vec<Frame<'static>> = parse_frames_unchecked(bytes)
+        .filter_map(|r| r.ok())
+        .map(|(f, _)| f.into_owned())
+        .collect();
+    SystemArea::from_frames(&frames)
+}
+
+/// Encode a typed [`SystemArea`] into raw SysEx bytes ready to send via
+/// Web MIDI. The System area always addresses MSBs `0x01` / `0x02`
+/// internally, so the caller doesn't pass a base MSB.
+#[wasm_bindgen(js_name = encodeSystemToSysex)]
+pub fn encode_system_to_sysex(system: SystemArea, device_id: u8) -> Result<Vec<u8>, JsValue> {
+    let frames = system.to_frames(device_id).map_err(js_err)?;
+    let mut out = Vec::new();
+    for frame in &frames {
+        out.extend(frame.encode());
+    }
+    Ok(out)
+}
+
+/// A fresh default [`SystemArea`] — all-`None` baseline that round-trips
+/// cleanly through the codec. Useful as an offline-mode placeholder
+/// before the device's actual System dump arrives.
+#[wasm_bindgen(js_name = newDefaultSystem)]
+pub fn new_default_system() -> SystemArea {
+    SystemArea::default()
 }
 
 // ---------------------------------------------------------------------------

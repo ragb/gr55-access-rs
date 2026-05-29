@@ -1731,6 +1731,7 @@ impl GkPuPosition {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(tsify_next::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "snake_case", default)]
 pub struct SystemArea {
     /// Currently-selected patch, encoded on the wire as two consecutive 7-bit
